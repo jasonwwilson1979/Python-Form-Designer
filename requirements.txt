@@ -1,0 +1,7 @@
+# Python Form Designer - production dependencies
+Django>=5.2,<5.3
+gunicorn>=23.0,<25
+whitenoise>=6.6,<7
+
+# Optional: only needed when DB_ENGINE=postgres
+psycopg[binary]>=3.1.18,<4

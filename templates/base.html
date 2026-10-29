@@ -1,0 +1,58 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{% static 'designer/css/app.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="app-body">
+    <header class="app-nav">
+        <a class="brand" href="{% url 'designer:dashboard' %}">
+            <i class="fas fa-window-maximize"></i>
+            {{ SITE_NAME }}
+            <span class="version">v{{ APP_VERSION }}</span>
+        </a>
+        <nav class="nav-links">
+            {% if user.is_authenticated %}
+                <a class="nav-link primary" href="{% url 'designer:new_project' %}">
+                    <i class="fas fa-plus"></i> New form
+                </a>
+                <a class="nav-link" href="{% url 'designer:dashboard' %}">
+                    <i class="fas fa-folder-open"></i> My forms
+                </a>
+                <a class="nav-link" href="{% url 'accounts:profile' %}">
+                    <i class="fas fa-user-circle"></i> {{ user.username }}
+                </a>
+                <form method="post" action="{% url 'accounts:logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="nav-link"><i class="fas fa-sign-out-alt"></i> Log out</button>
+                </form>
+            {% else %}
+                <a class="nav-link" href="{% url 'accounts:login' %}">Log in</a>
+                <a class="nav-link primary" href="{% url 'accounts:signup' %}">Sign up free</a>
+            {% endif %}
+        </nav>
+    </header>
+
+    <main class="app-main">
+        {% if messages %}
+            <ul class="app-messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer">
+        {{ SITE_NAME }} v{{ APP_VERSION }} &middot; built with Django
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

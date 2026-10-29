@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# Python Form Designer - Portainer stack (prebuilt image from GitHub Packages)
+#
+# Use this file when you want Portainer to PULL the image built by
+# .github/workflows/docker-publish.yml instead of building it on the host.
+#
+#   1. Push this repository to GitHub (the workflow publishes to GHCR).
+#   2. In Portainer: Stacks -> Add stack -> Repository
+#        Repository URL : https://github.com/<you>/<repo>
+#        Compose path   : portainer-stack.yml
+#   3. Replace CHANGE_ME_OWNER below with your GitHub user/org (lowercase).
+#   4. Set DJANGO_SECRET_KEY (and optionally the DB_* / superuser variables).
+#
+# The image is public by default; for a private package add a GHCR
+# registry credential in Portainer -> Registries.
+# ---------------------------------------------------------------------------
+services:
+  web:
+    image: ghcr.io/change_me_owner/python-form-designer:latest
+    container_name: python-form-designer
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_SECURE_COOKIES: ${DJANGO_SECURE_COOKIES:-False}
+      SITE_NAME: ${SITE_NAME:-Python Form Designer}
+      APP_VERSION: ${APP_VERSION:-2.0.0}
+      DATA_DIR: /data
+      DB_ENGINE: ${DB_ENGINE:-sqlite}
+      DB_NAME: ${DB_NAME:-formdesigner}
+      DB_USER: ${DB_USER:-formdesigner}
+      DB_PASSWORD: ${DB_PASSWORD:-formdesigner}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+    volumes:
+      - formdesigner-data:/data
+
+  db:
+    image: postgres:16-alpine
+    container_name: python-form-designer-db
+    restart: unless-stopped
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${DB_NAME:-formdesigner}
+      POSTGRES_USER: ${DB_USER:-formdesigner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-formdesigner}
+    volumes:
+      - formdesigner-db:/var/lib/postgresql/data
+
+volumes:
+  formdesigner-data:
+  formdesigner-db:

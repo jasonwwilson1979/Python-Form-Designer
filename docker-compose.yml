@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# Python Form Designer - local / self-hosted stack
+#
+#   docker compose up -d --build              # SQLite (data kept in a volume)
+#   docker compose --profile postgres up -d   # with PostgreSQL
+#
+# Copy .env.example to .env first and change DJANGO_SECRET_KEY.
+# ---------------------------------------------------------------------------
+services:
+  web:
+    build: .
+    image: python-form-designer:latest
+    container_name: python-form-designer
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_SECURE_COOKIES: ${DJANGO_SECURE_COOKIES:-False}
+      SITE_NAME: ${SITE_NAME:-Python Form Designer}
+      APP_VERSION: ${APP_VERSION:-2.0.0}
+      DATA_DIR: /data
+      DB_ENGINE: ${DB_ENGINE:-sqlite}
+      DB_NAME: ${DB_NAME:-formdesigner}
+      DB_USER: ${DB_USER:-formdesigner}
+      DB_PASSWORD: ${DB_PASSWORD:-formdesigner}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+    volumes:
+      - formdesigner-data:/data
+
+  # Only started with:  docker compose --profile postgres up -d
+  db:
+    image: postgres:16-alpine
+    container_name: python-form-designer-db
+    restart: unless-stopped
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${DB_NAME:-formdesigner}
+      POSTGRES_USER: ${DB_USER:-formdesigner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-formdesigner}
+    volumes:
+      - formdesigner-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-formdesigner} -d ${DB_NAME:-formdesigner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  formdesigner-data:
+  formdesigner-db:
