@@ -225,10 +225,14 @@ POST/PATCH/DELETE requests need the `X-CSRFToken` header (the pages include a
 
 ## 7b. The code library
 
-There are two layers, shown as two tabs in the Code Library dialog (the dialog
-always fits the screen: its header, tabs and search stay visible while the lists
-scroll, and the one search box filters **both** libraries by name, description
-and code):
+The **Code Library** button lives in the top bar of the designer (right of
+*My forms*) and in the site nav on *My forms* / profile pages (between
+*My forms* and your profile), so you can grab a snippet without opening the
+designer. Both open the same dialog.
+
+There are two layers, shown as two tabs (the dialog always fits the screen: its
+header, tabs and search stay visible while the lists scroll, and the one search
+box filters **both** libraries by name, description and code):
 
 1. **Your own snippets ("My snippets" tab - browser cache).** Everything you save
    lives in your browser (`localStorage`) exactly as before - add, edit, search,

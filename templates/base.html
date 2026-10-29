@@ -24,6 +24,10 @@
                 <a class="nav-link" href="{% url 'designer:dashboard' %}">
                     <i class="fas fa-folder-open"></i> My forms
                 </a>
+                <button type="button" class="nav-link" id="codeLibraryNavBtn"
+                        title="Code library - browse, copy and save snippets">
+                    <i class="fas fa-code"></i> Code Library
+                </button>
                 <a class="nav-link" href="{% url 'accounts:profile' %}">
                     <i class="fas fa-user-circle"></i> {{ user.username }}
                 </a>
@@ -54,5 +58,17 @@
     </footer>
 
     {% block scripts %}{% endblock %}
+
+    {% if LIBRARY_API %}
+        {{ LIBRARY_API|json_script:"library-api" }}
+        <script src="{% static 'designer/js/code-library.js' %}"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                if (!window.FormDesignerLibrary) return;
+                var bootstrap = JSON.parse(document.getElementById('library-api').textContent);
+                window.FormDesignerLibrary.mount(bootstrap);
+            });
+        </script>
+    {% endif %}
 </body>
 </html>

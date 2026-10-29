@@ -416,6 +416,43 @@ class PageTests(TestCase):
             owner=self.owner, name="Pagey", data=SAMPLE_DATA, python_code="print('hi')"
         )
 
+    def test_dashboard_nav_has_the_code_library_button(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("designer:dashboard"))
+        self.assertContains(response, 'id="codeLibraryNavBtn"')
+        self.assertContains(response, "code-library.js")
+        self.assertContains(response, 'id="library-api"')
+        bootstrap = response.context["LIBRARY_API"]
+        self.assertEqual(bootstrap["api"]["snippets"], reverse("designer:api_snippets"))
+        self.assertIn("__ID__", bootstrap["api"]["snippetTemplate"])
+        self.assertIn("__ID__", bootstrap["api"]["snippetCopyTemplate"])
+        self.assertFalse(bootstrap["user"]["isStaff"])
+
+    def test_code_library_button_order_is_between_my_forms_and_profile(self):
+        self.client.force_login(self.owner)
+        html = self.client.get(reverse("designer:dashboard")).content.decode()
+        my_forms = html.index("My forms")
+        library = html.index('id="codeLibraryNavBtn"')
+        profile = html.index(reverse("accounts:profile"))
+        self.assertLess(my_forms, library)
+        self.assertLess(library, profile)
+
+    def test_admin_flag_is_exposed_in_the_library_bootstrap(self):
+        self.admin = User.objects.create_user("boss", password="pass12345", is_staff=True)
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("designer:dashboard"))
+        self.assertTrue(response.context["LIBRARY_API"]["user"]["isStaff"])
+
+    def test_anonymous_visitors_get_no_library_bootstrap(self):
+        response = self.client.get(reverse("accounts:login"))
+        self.assertIsNone(response.context["LIBRARY_API"])
+        self.assertNotContains(response, "code-library.js")
+
+    def test_profile_page_also_has_the_library_button(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("accounts:profile"))
+        self.assertContains(response, 'id="codeLibraryNavBtn"')
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)
