@@ -42,7 +42,12 @@ echo "[entrypoint] applying database migrations..."
 python manage.py migrate --noinput
 
 echo "[entrypoint] collecting static files..."
-python manage.py collectstatic --noinput
+if ! python manage.py collectstatic --noinput; then
+    # The image already contains the files collected at build time, so keep
+    # going - but make the failure impossible to miss in the container log.
+    echo "[entrypoint] WARNING: collectstatic failed (see the traceback above)." >&2
+    echo "[entrypoint] WARNING: continuing with the static files already in the image." >&2
+fi
 
 if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then
     echo "[entrypoint] ensuring superuser '${DJANGO_SUPERUSER_USERNAME}' exists..."

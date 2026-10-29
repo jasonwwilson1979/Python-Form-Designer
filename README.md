@@ -43,7 +43,7 @@ Use **Sign up free** to create an account, then **New form** to open the designe
 Useful commands:
 
 ```bash
-python manage.py test              # 47 tests
+python manage.py test              # 64 tests
 python manage.py check
 python manage.py collectstatic --noinput
 ```
@@ -135,6 +135,38 @@ ghcr.io/<you>/<repo>:latest
 > Behind a reverse proxy (Nginx/Traefik/Synology) terminate TLS there and forward
 > to port 8000. Keep `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`
 > aligned with the public URL, and set `DJANGO_SECURE_COOKIES=True` when using HTTPS.
+
+### 3d. If a stack build fails
+
+Portainer only shows the last line of the build log (`... did not complete
+successfully: exit code: 1`); the real error is a few lines above it. Two
+properties of this image make a build failure far less likely:
+
+* **Static files are collected twice.** The build runs `collectstatic` as a
+  *best effort* step, and `entrypoint.sh` collects them again when the container
+  starts. A build-environment problem (network share, unusual file permissions,
+  read-only context, full disk) therefore appears as
+  `WARNING: build-time collectstatic failed ...` in the build log instead of
+  stopping the deployment, and the container log shows the full traceback at
+  start-up.
+* **The entrypoint is executed with `/bin/sh`**, so the container never depends
+  on the executable bit of `entrypoint.sh` being preserved by the build context.
+
+Reproduce a failing build locally with the complete output:
+
+```bash
+docker build --progress=plain --no-cache -t pfd-debug .
+docker run --rm pfd-debug python manage.py collectstatic --noinput --verbosity 2
+```
+
+Common causes:
+
+| Symptom in the build log | Fix |
+| --- | --- |
+| `No space left on device` | Free space on the Portainer host (`docker system prune -a`) |
+| `Permission denied` / `Operation not permitted` | Build context on a Windows path or network share without POSIX permissions - clone the repo on the Docker host instead |
+| pip download errors / timeouts | The build host cannot reach PyPI - use the prebuilt GHCR image (option B above) |
+| `SyntaxError` / `ImproperlyConfigured` | A repository file is broken or has the wrong line endings (`.gitattributes` keeps the repo at LF) |
 
 ---
 
