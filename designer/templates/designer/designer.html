@@ -2633,6 +2633,7 @@
                             // way Tkinter does.
                             let pyLeft = "self." + control + ".cget('" + propertyName + "')";
                             let pyOperator = operator;
+                            let pyConditionOverride = null;
                             const conditionControlType = getControlTypeById(control);
                             if (propertyName === 'text' &&
                                 ['Entry', 'Combobox', 'Listbox'].includes(conditionControlType)) {
@@ -2641,8 +2642,17 @@
                             } else if (propertyName === 'selected' && conditionControlType === 'Checkbutton') {
                                 pyLeft = "self." + control + "_var.get()";
                             } else if (propertyName === 'selected' && conditionControlType === 'Radiobutton') {
-                                pyLeft = "self." + control + "_var.get()";
-                                pyValue = value === 'False' ? "''" : "'selected'";
+                                // Radios share the variable of their parent group and each
+                                // stores its own id, so "selected" compares against it
+                                const element = document.getElementById(control);
+                                pyConditionOverride = radioGroupVariable(element) + ".get() " +
+                                    (value === 'False' ? "!=" : "==") + " '" + radioGroupValue(element) + "'";
+                            } else if (propertyName === 'selectedItem' && conditionControlType === 'Combobox') {
+                                pyLeft = "self." + control + ".get()";
+                            } else if (propertyName === 'selectedItem' && conditionControlType === 'Listbox') {
+                                // The first selected row (empty when nothing is selected)
+                                pyLeft = "(self." + control + ".get(self." + control + ".curselection()[0]) " +
+                                    "if self." + control + ".curselection() else '')";
                             } else if (propertyName === 'enabled') {
                                 // Classic Tk widgets have no instate(): the state option is
                                 // 'normal' or 'disabled'.
@@ -2657,10 +2667,12 @@
                             // "Contains" reads as <value> in <property>, so the operands
                             // swap round for that operator.
                             const isTextLikeProperty = pyLeft.indexOf(".cget(") !== -1 ||
-                                pyLeft.indexOf(".get()") !== -1;
-                            const pyCondition = (pyOperator === 'in' && isTextLikeProperty)
-                                ? pyValue + " in " + pyLeft
-                                : pyLeft + " " + pyOperator + " " + pyValue;
+                                pyLeft.indexOf(".get(") !== -1;
+                            const pyCondition = pyConditionOverride !== null
+                                ? pyConditionOverride
+                                : (pyOperator === 'in' && isTextLikeProperty)
+                                    ? pyValue + " in " + pyLeft
+                                    : pyLeft + " " + pyOperator + " " + pyValue;
 
                             // Check if this is part of an if/elif chain
                             closeEmptyBlock();
@@ -2724,7 +2736,17 @@
                         } else if (actionText.includes("SELECT ITEM (")) {
                             const selectMatch = actionText.match(/SELECT ITEM \(([^ ]+) = '(.*)'\)/);
                             if (selectMatch) {
-                                pyCode += indent + "self." + selectMatch[1] + ".set('" + selectMatch[2] + "')\n";
+                                const target = selectMatch[1];
+                                const value = selectMatch[2];
+                                const element = document.getElementById(target);
+                                const targetType = element ? getControlType(element) : '';
+                                if (targetType === 'Listbox') {
+                                    pyCode += indent + "_items = list(self." + target + ".get(0, tk.END))\n";
+                                    pyCode += indent + "if '" + value + "' in _items: self." + target +
+                                        ".selection_clear(0, tk.END); self." + target + ".selection_set(_items.index('" + value + "'))\n";
+                                } else {
+                                    pyCode += indent + "self." + target + ".set('" + value + "')\n";
+                                }
                             }
                         } else if (actionText.includes(".config(")) {
                             const actionMatch = actionText.match(/SET \(([^(]+)\.config\((.*)\)\)/);
@@ -2764,6 +2786,11 @@
                                 // Both controls should be the same
                                 pyCode += indent + "self." + control1 + ".delete(0, tk.END)\n";
                                 pyCode += indent + "self." + control2 + ".insert(0, '" + value + "')\n";
+                            }
+                        } else if (actionText.includes(".select()") || actionText.includes(".deselect()")) {
+                            const selectMatch = actionText.match(/SET \(([^ ]+)\.(select|deselect)\(\)\)/);
+                            if (selectMatch) {
+                                pyCode += indent + "self." + selectMatch[1] + "." + selectMatch[2] + "()\n";
                             }
                         } else if (actionText.includes(".invoke(")) {
                             const actionMatch = actionText.match(/CALL \(([^(]+)\.invoke\(\)\)/);
@@ -3246,8 +3273,48 @@
                 font: 'Arial'
             };
 
+            // Radio buttons are grouped by their parent: all radios in the same
+            // container (or on the form) share one Tk variable, so selecting one
+            // clears the others.  A control on its own stays independent.
+            function radioGroupKey(control) {
+                const parent = control.parentElement;
+                return (parent && parent.classList.contains('form-control')) ? parent.id : 'form';
+            }
+
+            function radioGroupVariable(control) {
+                const key = radioGroupKey(control);
+                return 'self.' + (key === 'form' ? 'radio_group_var' : key + '_radio_group_var');
+            }
+
+            // Value a radio stores in the shared variable (its own id, so the
+            // generated code can tell which one is selected)
+            function radioGroupValue(control) {
+                return control.id;
+            }
+
+            // Keep the browser preview in step: radio inputs only toggle each other
+            // when they share a name, so the name follows the parent as well.
+            function refreshRadioGroups() {
+                formContainer.querySelectorAll('.form-control[data-type="radiobutton"]').forEach(function(control) {
+                    const input = control.querySelector('input[type="radio"]');
+                    if (input) {
+                        input.setAttribute('name', 'radio_group_' + radioGroupKey(control));
+                    }
+                });
+            }
+
+            // Show what the Visible/Enabled properties will do in the generated form
+            function refreshControlStates() {
+                formContainer.querySelectorAll('.form-control').forEach(function(control) {
+                    control.classList.toggle('is-hidden', control.getAttribute('data-visible') === 'false');
+                    control.classList.toggle('is-disabled', control.getAttribute('data-enabled') === 'false');
+                });
+            }
+
             // Function to generate real-time code preview
             function generateRealTimeCode() {
+                refreshRadioGroups();
+                refreshControlStates();
                 let pyCode = "# Generated Python Tkinter Form\n\n";
                 pyCode += "import tkinter as tk\n";
                 pyCode += "from tkinter import ttk\n";
@@ -3287,6 +3354,8 @@
                 
                 // Collect event handlers for later
                 let eventHandlerCode = "";
+                // One variable per radio group, emitted before its first radio
+                const radioGroupVariablesEmitted = {};
                 
                 sortedControls.forEach(function(control, index) {
                     const controlId = control.id;
@@ -3368,8 +3437,14 @@
                         pyCode += ")\n";
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Radiobutton') {
-                        pyCode += "        self." + controlId + "_var = tk.StringVar()\n";
-                        pyCode += "        self." + controlId + " = tk.Radiobutton(" + master + ", text='" + text.replace(/'/g, "\\'") + "', variable=self." + controlId + "_var, value='selected'";
+                        // Radio buttons in the same parent share one variable, which is
+                        // what makes Tk treat them as one group (only one selected).
+                        const groupVar = radioGroupVariable(control);
+                        if (!radioGroupVariablesEmitted[groupVar]) {
+                            radioGroupVariablesEmitted[groupVar] = true;
+                            pyCode += "        " + groupVar + " = tk.StringVar()\n";
+                        }
+                        pyCode += "        self." + controlId + " = tk.Radiobutton(" + master + ", text='" + text.replace(/'/g, "\\'") + "', variable=" + groupVar + ", value='" + controlId + "'";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         const fgColor = rgbToHex(computedStyle.color);
@@ -3502,6 +3577,18 @@
                         if (bgColor && bgColor !== '#ffffff' && bgColor !== '#f0f0f0') {
                             pyCode += "        self." + controlId + ".configure(bg='" + bgColor + "')\n";
                         }
+                    }
+
+                    // Collect event handlers for later (after all controls are created)
+                    // Visible / Enabled from the properties panel
+                    if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu' &&
+                        controlType !== 'Toplevel') {
+                        // Not placed, so it does not show up (the Show action can place it)
+                        pyCode += "        self." + controlId + ".place_forget()\n";
+                    }
+                    if (control.getAttribute('data-enabled') === 'false' &&
+                        ['Label', 'Entry', 'Button', 'Checkbutton', 'Radiobutton', 'Combobox', 'Listbox'].includes(controlType)) {
+                        pyCode += "        self." + controlId + ".config(state='disabled')\n";
                     }
 
                     // Collect event handlers for later (after all controls are created)
@@ -5023,6 +5110,10 @@ print("${controlId} clicked!")`;
                     propertySelect.innerHTML += '<option value="selected">Selected</option>';
                 }
 
+                if (controlType === 'Combobox' || controlType === 'Listbox') {
+                    propertySelect.innerHTML += '<option value="selectedItem">Selected Item</option>';
+                }
+
                 document.getElementById('conditionValue').style.display = 'block';
                 document.getElementById('conditionValueBool').style.display = 'none';
             });
@@ -5070,6 +5161,7 @@ print("${controlId} clicked!")`;
                     actionTypeSelect.innerHTML += '<option value="removeItem">Remove Item</option>';
                     actionTypeSelect.innerHTML += '<option value="clearItems">Clear Items</option>';
                 } else if (controlType === 'Listbox') {
+                    actionTypeSelect.innerHTML += '<option value="setValue">Select Item</option>';
                     actionTypeSelect.innerHTML += '<option value="addItem">Add Item</option>';
                     actionTypeSelect.innerHTML += '<option value="removeItem">Remove Item</option>';
                     actionTypeSelect.innerHTML += '<option value="clearItems">Clear Items</option>';
@@ -5316,7 +5408,9 @@ print("${controlId} clicked!")`;
                             }
                             break;
                         case 'setSelected':
-                            actionText = `SET (${obj.control}.select())` + (obj.value === 'False' ? ' (deselect)' : '');
+                            actionText = obj.value === 'False'
+                                ? `SET (${obj.control}.deselect())`
+                                : `SET (${obj.control}.select())`;
                             break;
                         case 'setValue':
                             actionText = `SELECT ITEM (${obj.control} = '${obj.value}')`;
@@ -5523,7 +5617,9 @@ print("${controlId} clicked!")`;
                             actionText = `SET (${control}.config(text='${newValue}'))`;
                             break;
                         case 'setSelected':
-                            actionText = `SET (${control}.select())`;
+                            actionText = newValue === 'False'
+                                ? `SET (${control}.deselect())`
+                                : `SET (${control}.select())`;
                             break;
                         case 'setValue':
                             actionText = `SELECT ITEM (${control} = '${newValue}')`;

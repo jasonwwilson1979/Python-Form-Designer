@@ -539,6 +539,25 @@ class PageTests(TestCase):
         ):
             self.assertIn(expected, template)
 
+    def test_radio_groups_control_states_and_item_conditions(self):
+        """Radios are grouped per parent, Visible/Enabled reach the generated code,
+        and ListBox/ComboBox expose a Selected Item condition."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        for expected in (
+            "radioGroupVariable",
+            "radioGroupKey",
+            "refreshRadioGroups",
+            "refreshControlStates",
+            "place_forget()",
+            "config(state='disabled')",
+            '<option value="selectedItem">Selected Item</option>',
+            ".curselection()[0]",
+            ".deselect()",
+        ):
+            self.assertIn(expected, template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)

@@ -611,6 +611,13 @@ body.app-body {
 .picker-banner[hidden] { display: none; }
 .picker-banner .btn { margin-left: auto; }
 
+/* Visible / Enabled from the properties panel.  The control stays clickable in
+   the designer so it can be selected again, but shows what the generated form
+   will do (hidden = faded with a dashed outline, disabled = greyed out). */
+.form-control.is-hidden { opacity: .35; outline: 1px dashed #e67e22; }
+.form-control.is-disabled { filter: grayscale(1); opacity: .6; }
+.form-control.is-hidden.is-disabled { opacity: .3; }
+
 /* Picker mode (Add Script -> Insert Code Snippet): the dialog lists the local
    and the published snippets together so any of them can be inserted with one
    click - no tabs to switch, no "add snippet" form in the way. */
