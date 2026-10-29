@@ -732,6 +732,156 @@
         }
     }
 
+    /* -------------------------------------- logic builder public snippets */
+    function logicBuilderList() {
+        return document.getElementById('codeLibraryPublicList');
+    }
+
+    function logicBuilderSearchTerm() {
+        const input = document.getElementById('codeLibrarySearch');
+        return input ? input.value.trim().toLowerCase() : '';
+    }
+
+    async function loadLogicBuilderSnippets() {
+        const list = logicBuilderList();
+        if (!list) return;
+        try {
+            const payload = await apiRequest(api.snippets, { method: 'GET' });
+            state.snippets = payload.snippets || [];
+            state.canPublish = !!payload.can_publish;
+        } catch (err) {
+            list.innerHTML = '<div class="empty-state">' + escapeHtml(err.message) + '</div>';
+            return;
+        }
+        renderLogicBuilderSnippets();
+    }
+
+    function renderLogicBuilderSnippets() {
+        const list = logicBuilderList();
+        if (!list) return;
+        const term = logicBuilderSearchTerm();
+        const snippets = (state.snippets || []).filter(function (snippet) {
+            if (!term) return true;
+            return [snippet.name, snippet.description, snippet.code]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase()
+                .includes(term);
+        });
+
+        const badge = document.getElementById('logicLibraryPublicCount');
+        if (badge) badge.textContent = String(snippets.length);
+
+        list.innerHTML = '';
+        if (!snippets.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = term
+                ? 'No public snippets match "' + term + '".'
+                : 'No public snippets have been published yet.';
+            list.appendChild(empty);
+            return;
+        }
+
+        snippets.forEach(function (snippet) {
+            const item = document.createElement('div');
+            item.className = 'code-snippet-item';
+            item.style.cssText = 'border-bottom: 1px solid #eee; padding: 8px 0; ' +
+                'display: flex; justify-content: space-between; align-items: center; gap: 8px;';
+
+            const info = document.createElement('div');
+            info.style.cssText = 'flex: 1; min-width: 0;';
+            info.innerHTML =
+                '<strong>' + escapeHtml(snippet.name) + '</strong>' +
+                (snippet.description
+                    ? '<div style="font-size: 11px; color: #888; margin-top: 2px;">' +
+                        escapeHtml(snippet.description) + '</div>'
+                    : '') +
+                '<small style="color: #666; font-family: Consolas, monospace; font-size: 12px; ' +
+                    'overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; margin-top: 3px;">' +
+                    escapeHtml((snippet.code || '').substring(0, 100)) +
+                    ((snippet.code || '').length > 100 ? '...' : '') +
+                '</small>' +
+                '<small style="color: #95a5a6; font-size: 11px;">by ' + escapeHtml(snippet.created_by) +
+                    ' - ' + snippet.copy_count + ' cop' + (snippet.copy_count === 1 ? 'y' : 'ies') + '</small>';
+
+            const actions = document.createElement('div');
+            actions.style.whiteSpace = 'nowrap';
+
+            const insertButton = document.createElement('button');
+            insertButton.type = 'button';
+            insertButton.className = 'btn btn-primary';
+            insertButton.style.cssText = 'padding: 4px 8px; font-size: 12px; margin-right: 5px;';
+            insertButton.textContent = 'Insert';
+            insertButton.addEventListener('click', function () {
+                insertSnippetIntoEditor(snippet);
+            });
+            actions.appendChild(insertButton);
+
+            const copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'btn btn-secondary';
+            copyButton.style.cssText = 'padding: 4px 8px; font-size: 12px;';
+            copyButton.textContent = 'Copy to my library';
+            copyButton.addEventListener('click', function () {
+                copySnippetToLocalLibrary(snippet);
+            });
+            actions.appendChild(copyButton);
+
+            item.appendChild(info);
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+    }
+
+    function insertSnippetIntoEditor(snippet) {
+        if (typeof window.pfdInsertSnippetCode === 'function') {
+            window.pfdInsertSnippetCode(snippet.name, snippet.description, snippet.code);
+            return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(snippet.code).catch(function () {});
+        }
+        toast('Snippet code copied', 'success');
+    }
+
+    async function copySnippetToLocalLibrary(snippet) {
+        try {
+            const payload = await apiRequest(
+                api.snippetCopyTemplate.replace('__ID__', snippet.id),
+                { method: 'POST' }
+            );
+            const fresh = payload.snippet || snippet;
+            const snippets = localSnippets();
+            const existing = snippets.findIndex(function (entry) {
+                return entry.name === fresh.name;
+            });
+            if (existing >= 0 && !window.confirm('You already have a snippet named "' + fresh.name + '". Replace it?')) {
+                return;
+            }
+            const entry = {
+                name: fresh.name,
+                description: fresh.description || '',
+                code: fresh.code
+            };
+            if (existing >= 0) {
+                snippets[existing] = entry;
+            } else {
+                snippets.push(entry);
+            }
+            saveLocalSnippets(snippets);
+
+            // refresh the logic builder's own local list too
+            if (typeof window.loadCodeSnippets === 'function') {
+                const search = document.getElementById('codeLibrarySearch');
+                window.loadCodeSnippets(search ? search.value : '');
+            }
+            toast('"' + fresh.name + '" copied into your library', 'success');
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
     /* -------------------------------------------------------- browser draft */
     function draftKey() {
         return DRAFT_PREFIX + (state.projectId || 'new');
@@ -940,6 +1090,35 @@
                 loadPublicSnippets();
             });
         }
+
+        // Logic builder: its Code Library tab lists local + public snippets
+        const logicLibraryTabBtn = document.getElementById('codeLibraryTabBtn');
+        if (logicLibraryTabBtn) {
+            logicLibraryTabBtn.addEventListener('click', function () {
+                const search = document.getElementById('codeLibrarySearch');
+                if (typeof window.loadCodeSnippets === 'function') {
+                    window.loadCodeSnippets(search ? search.value : '');
+                }
+                loadLogicBuilderSnippets();
+            });
+        }
+
+        const logicLibrarySearch = document.getElementById('codeLibrarySearch');
+        if (logicLibrarySearch) {
+            logicLibrarySearch.addEventListener('input', function () {
+                // filter the local list (the inline onkeyup does this too, but
+                // this keeps it working even if that handler is unavailable)
+                if (typeof window.loadCodeSnippets === 'function') {
+                    window.loadCodeSnippets(this.value);
+                }
+                renderLogicBuilderSnippets();
+            });
+        }
+
+        // Called by the inline onkeyup handler on that search box
+        window.pfdFilterPublicSnippets = function () {
+            renderLogicBuilderSnippets();
+        };
 
         document.addEventListener('keydown', function (event) {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {

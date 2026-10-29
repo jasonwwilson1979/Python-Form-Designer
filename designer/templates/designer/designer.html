@@ -1304,25 +1304,30 @@
                         <!-- Code Library Tab -->
                         <div id="codeLibraryTab" class="tab-pane">
                             <div class="property-group">
-                                <label class="property-label">Code Library</label>
-                                <div style="display: flex; flex-direction: column; gap: 10px;">
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" class="property-input" id="codeLibraryName" placeholder="Snippet Name" style="flex: 1;">
-                                        <button class="btn btn-primary" id="addCodeSnippetBtn" onclick="addCodeSnippet()">Add Snippet</button>
-                                    </div>
-                                    <input type="text" class="property-input" id="codeLibraryDescription" placeholder="Snippet Description" style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 13px;">
-                                    <textarea class="property-input" id="codeLibrarySnippet" rows="5" placeholder="Enter your Python code snippet here..." style="font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; resize: vertical; flex: 1;"></textarea>
-                                </div>
+                                <label class="property-label">Search snippets</label>
+                                <input type="text" class="property-input" id="codeLibrarySearch" placeholder="Search both libraries by name or description..." style="margin-bottom: 10px;" onkeyup="handleCodeLibrarySearchImmediate()">
                             </div>
-                            
+
                             <div class="property-group">
-                                <label class="property-label">Search Code Snippets</label>
-                                <input type="text" class="property-input" id="codeLibrarySearch" placeholder="Search snippets by name or content..." style="margin-bottom: 10px;" onkeyup="handleCodeLibrarySearchImmediate()">
-                                <label class="property-label">Saved Code Snippets</label>
-                                <div id="codeLibraryList" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background-color: #f8f9fa;">
-                                    <!-- Code snippets will be listed here -->
+                                <label class="property-label">
+                                    <i class="fas fa-hdd"></i> My snippets
+                                    <span class="library-count" id="logicLibraryLocalCount">0</span>
+                                </label>
+                                <div id="codeLibraryList" style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background-color: #f8f9fa;">
                                     <div id="codeLibraryEmptyMessage" style="text-align: center; padding: 20px; color: #999;">No code snippets saved yet</div>
                                 </div>
+                                <span class="library-hint">Click a snippet (or press Insert) to load it into the script editor. Add or edit your own snippets from the Code Library in the top bar.</span>
+                            </div>
+
+                            <div class="property-group">
+                                <label class="property-label">
+                                    <i class="fas fa-globe"></i> Public library
+                                    <span class="library-count" id="logicLibraryPublicCount">0</span>
+                                </label>
+                                <div id="codeLibraryPublicList" style="max-height: 170px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background-color: #f8f9fa;">
+                                    <div class="empty-state">Loading the public code library...</div>
+                                </div>
+                                <span class="library-hint">Shared snippets published by administrators - insert one straight away or copy it into your own library.</span>
                             </div>
                         </div>
                     </div>
@@ -4060,29 +4065,30 @@ print("${controlId} clicked!")`;
                     
                     const codeLibraryList = document.getElementById('codeLibraryList');
                     const emptyMessage = document.getElementById('codeLibraryEmptyMessage');
+                    const countBadge = document.getElementById('logicLibraryLocalCount');
                     
                     if (!codeLibraryList || !emptyMessage) {
                         return codeSnippets.length;
                     }
                     
-                    let filteredSnippets = codeSnippets;
-                    if (searchTerm && searchTerm.trim() !== '') {
-                        const lowerSearchTerm = searchTerm.toLowerCase();
-                        filteredSnippets = codeSnippets.filter(snippet => 
-                            snippet.name.toLowerCase().includes(lowerSearchTerm) || 
-                            (snippet.description && snippet.description.toLowerCase().includes(lowerSearchTerm))
-                        );
+                    const filteredSnippets = filterSnippets(codeSnippets, searchTerm);
+                    if (countBadge) {
+                        countBadge.textContent = String(filteredSnippets.length);
                     }
                     
                     if (filteredSnippets.length === 0) {
+                        // Keep the empty-message element in the DOM: it is looked up
+                        // again on every call.
+                        codeLibraryList.querySelectorAll('.code-snippet-item').forEach(el => el.remove());
                         emptyMessage.style.display = 'block';
-                        codeLibraryList.innerHTML = '';
-                        codeLibraryList.appendChild(emptyMessage);
+                        emptyMessage.textContent = (searchTerm && searchTerm.trim())
+                            ? 'No snippets in this browser match "' + searchTerm.trim() + '".'
+                            : 'No code snippets saved in this browser yet.';
                         return codeSnippets.length;
                     }
-                    
+
                     emptyMessage.style.display = 'none';
-                    codeLibraryList.innerHTML = '';
+                    codeLibraryList.querySelectorAll('.code-snippet-item').forEach(el => el.remove());
                     
                     filteredSnippets.forEach((snippet, index) => {
                         const originalIndex = codeSnippets.findIndex(s => s.name === snippet.name && s.description === snippet.description && s.code === snippet.code);
@@ -4096,15 +4102,15 @@ print("${controlId} clicked!")`;
                         snippetElement.style.alignItems = 'center';
                         
                         snippetElement.innerHTML = `
-                            <div style="flex: 1; cursor: pointer;" onclick="insertCodeSnippet(${originalIndex})">
-                                <strong>${snippet.name}</strong>
+                            <div style="flex: 1; min-width: 0; cursor: pointer;" title="Click to load this snippet into the script editor" onclick="insertCodeSnippet(${originalIndex})">
+                                <strong>${escapeHtml(snippet.name)}</strong>
                                 ${snippet.description ? '<div style="font-size: 11px; color: #888; margin-top: 2px;">' + escapeHtml(snippet.description) + '</div>' : ''}
                                 <small style="color: #666; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 300px; margin-top: 3px;">
                                     ${escapeHtml(snippet.code.substring(0, 100))}${snippet.code.length > 100 ? '...' : ''}
                                 </small>
                             </div>
-                            <div>
-                                <button class="btn btn-secondary" onclick="editCodeSnippet(${originalIndex})" style="padding: 4px 8px; font-size: 12px; margin-right: 5px;">Edit</button>
+                            <div style="white-space: nowrap;">
+                                <button class="btn btn-primary" onclick="insertCodeSnippet(${originalIndex})" style="padding: 4px 8px; font-size: 12px; margin-right: 5px;">Insert</button>
                                 <button class="btn btn-secondary" onclick="deleteCodeSnippet(${originalIndex})" style="padding: 4px 8px; font-size: 12px;">Delete</button>
                             </div>
                         `;
@@ -4116,6 +4122,30 @@ print("${controlId} clicked!")`;
                 } catch (error) {
                     console.error('Error in loadCodeSnippets:', error);
                     return 0;
+                }
+            }
+
+            // Shared snippet filter used by the logic builder search box
+            function filterSnippets(snippets, searchTerm) {
+                const term = (searchTerm || '').trim().toLowerCase();
+                if (!term) {
+                    return snippets;
+                }
+                return snippets.filter(snippet =>
+                    (snippet.name || '').toLowerCase().includes(term) ||
+                    (snippet.description || '').toLowerCase().includes(term) ||
+                    (snippet.code || '').toLowerCase().includes(term)
+                );
+            }
+
+            // Search box inside the logic builder's Code Library tab: filters the
+            // local list here and the public list through the Django bridge.
+            function handleCodeLibrarySearchImmediate() {
+                const searchInput = document.getElementById('codeLibrarySearch');
+                const term = searchInput ? searchInput.value : '';
+                loadCodeSnippets(term);
+                if (typeof window.pfdFilterPublicSnippets === 'function') {
+                    window.pfdFilterPublicSnippets(term);
                 }
             }
 
@@ -4204,9 +4234,12 @@ print("${controlId} clicked!")`;
                 if (index >= 0 && index < codeSnippets.length) {
                     const snippet = codeSnippets[index];
                     
-                    document.getElementById('codeLibraryName').value = snippet.name;
-                    document.getElementById('codeLibraryDescription').value = snippet.description || '';
-                    document.getElementById('codeLibrarySnippet').value = snippet.code;
+                    const nameInput = document.getElementById('codeLibraryName');
+                    const descriptionInput = document.getElementById('codeLibraryDescription');
+                    const snippetInput = document.getElementById('codeLibrarySnippet');
+                    if (nameInput) nameInput.value = snippet.name;
+                    if (descriptionInput) descriptionInput.value = snippet.description || '';
+                    if (snippetInput) snippetInput.value = snippet.code;
                     
                     if (confirm(`Do you want to load the snippet "${snippet.name}" into the editor for modification?`)) {
                         // User will modify and re-save
@@ -4243,40 +4276,45 @@ print("${controlId} clicked!")`;
                 }
             }
 
+            // Put a snippet's code into the logic builder's script editor and
+            // reveal the Script tab so the user can see what was inserted.
+            function loadSnippetIntoEditor(name, description, code) {
+                const scriptEditor = document.getElementById('eventScript');
+                if (!scriptEditor) {
+                    return false;
+                }
+
+                const currentText = scriptEditor.value;
+                scriptEditor.value = currentText ? currentText + '\n' + code : code;
+
+                if (scriptTab && !scriptTab.classList.contains('active') && scriptTabBtn) {
+                    scriptTabBtn.click();
+                }
+                return true;
+            }
+
+            // Used by both the local list here and the public list (via the bridge)
+            function insertSnippetCode(name, description, code) {
+                loadSnippetIntoEditor(name, description, code);
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(code).catch(function(err) {
+                        console.error('Failed to copy snippet to the clipboard: ', err);
+                    });
+                }
+
+                alert(`Code snippet "${name}" loaded into the editor!`);
+            }
+
             function insertCodeSnippet(index) {
                 const codeSnippets = JSON.parse(localStorage.getItem('codeSnippets') || '[]');
 
-                if (index >= 0 && index < codeSnippets.length) {
-                    const snippet = codeSnippets[index];
-
-                    navigator.clipboard.writeText(snippet.code).then(function() {
-                        document.getElementById('codeLibraryName').value = snippet.name;
-                        
-                        if (snippet.description) {
-                            document.getElementById('codeLibraryDescription').value = snippet.description;
-                        }
-                        
-                        if (scriptTab.classList.contains('active')) {
-                            const scriptEditor = document.getElementById('eventScript');
-                            const currentText = scriptEditor.value;
-                            scriptEditor.value = currentText ? currentText + '\n' + snippet.code : snippet.code;
-                        }
-                        
-                        alert(`Code snippet "${snippet.name}" copied to clipboard and loaded into editor!`);
-                    }).catch(function(err) {
-                        console.error('Failed to copy: ', err);
-                        document.getElementById('codeLibraryName').value = snippet.name;
-                        if (snippet.description) {
-                            document.getElementById('codeLibraryDescription').value = snippet.description;
-                        }
-                        if (scriptTab.classList.contains('active')) {
-                            const scriptEditor = document.getElementById('eventScript');
-                            const currentText = scriptEditor.value;
-                            scriptEditor.value = currentText ? currentText + '\n' + snippet.code : snippet.code;
-                        }
-                        alert(`Code snippet "${snippet.name}" loaded into editor! (Clipboard copy failed)`);
-                    });
+                if (index < 0 || index >= codeSnippets.length) {
+                    return;
                 }
+
+                const snippet = codeSnippets[index];
+                insertSnippetCode(snippet.name, snippet.description, snippet.code);
             }
 
             function escapeHtml(text) {
@@ -5192,6 +5230,8 @@ print("${controlId} clicked!")`;
             window.pfdSelectForm = showFormProperties;
             window.pfdDeleteSelectedControl = deleteSelectedControl;
             window.pfdRefreshSnippetList = loadCodeSnippetsModal;
+            window.pfdInsertSnippetCode = insertSnippetCode;
+            window.handleCodeLibrarySearchImmediate = handleCodeLibrarySearchImmediate;
 
             // Code preview: drag to resize + collapse/expand
             const codePreview = document.querySelector('.code-preview');

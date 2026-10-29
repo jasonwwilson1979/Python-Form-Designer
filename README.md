@@ -230,6 +230,13 @@ The **Code Library** button lives in the top bar of the designer (right of
 *My forms* and your profile), so you can grab a snippet without opening the
 designer. Both open the same dialog.
 
+The **Code Library tab inside the Logic Builder** (double-click a control) lists
+the same two libraries side by side - your browser snippets and the published
+ones - so you can insert code straight into a control's script with one click
+(*Insert* drops the snippet into the script editor and switches to the Script
+tab; *Copy to my library* saves a public snippet locally). That tab is only for
+finding and inserting code, so the "add snippet" form is not repeated there.
+
 There are two layers, shown as two tabs (the dialog always fits the screen: its
 header, tabs and search stay visible while the lists scroll, and the one search
 box filters **both** libraries by name, description and code):
