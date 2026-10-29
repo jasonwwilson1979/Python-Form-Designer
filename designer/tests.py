@@ -518,6 +518,27 @@ class PageTests(TestCase):
         ):
             self.assertIn(expected, template)
 
+    def test_visual_logic_item_actions_and_menu_handlers(self):
+        """ComboBox/ListBox item actions are offered and generated, and menu item
+        logic produces the handler the menu command points at."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        for expected in (
+            '<option value="addItem">Add Item</option>',
+            '<option value="removeItem">Remove Item</option>',
+            '<option value="clearItems">Clear Items</option>',
+            '<option value="setValue">Select Item</option>',
+            "ADD ITEM (",
+            "REMOVE ITEM (",
+            "CLEAR ITEMS (",
+            "SELECT ITEM (",
+            "_items = list(",
+            "_handler(self):",
+            "lookupEventType",
+        ):
+            self.assertIn(expected, template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)

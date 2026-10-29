@@ -2508,6 +2508,10 @@
                                 storageEventType = 'click'; // Menu items use 'click' event type
                             }
                         }
+                    } else if (eventType === 'menu_click') {
+                        // Without a menu item there is nowhere to attach the logic
+                        alert('Choose the menu item this logic belongs to (the dropdown next to the event).');
+                        return;
                     }
 
                     // Determine which tab is active and save the appropriate logic
@@ -2678,13 +2682,77 @@
                         const controlType = entry.getAttribute('data-control-type');
                         const lengthBeforeAction = pyCode.length;
 
-                        if (actionText.includes(".config(")) {
+                        if (actionText.includes("ADD ITEM (")) {
+                            const addMatch = actionText.match(/ADD ITEM \(([^ ]+) = '(.*)'\)/);
+                            if (addMatch) {
+                                const target = addMatch[1];
+                                const value = addMatch[2];
+                                const element = document.getElementById(target);
+                                const targetType = element ? getControlType(element) : '';
+                                if (targetType === 'Combobox') {
+                                    pyCode += indent + "self." + target + "['values'] = tuple(self." + target + "['values']) + ('" + value + "',)\n";
+                                } else {
+                                    pyCode += indent + "self." + target + ".insert(tk.END, '" + value + "')\n";
+                                }
+                            }
+                        } else if (actionText.includes("REMOVE ITEM (")) {
+                            const removeMatch = actionText.match(/REMOVE ITEM \(([^ ]+) = '(.*)'\)/);
+                            if (removeMatch) {
+                                const target = removeMatch[1];
+                                const value = removeMatch[2];
+                                const element = document.getElementById(target);
+                                const targetType = element ? getControlType(element) : '';
+                                if (targetType === 'Combobox') {
+                                    pyCode += indent + "self." + target + "['values'] = tuple(v for v in self." + target + "['values'] if v != '" + value + "')\n";
+                                } else {
+                                    pyCode += indent + "_items = list(self." + target + ".get(0, tk.END))\n";
+                                    pyCode += indent + "if '" + value + "' in _items: self." + target + ".delete(_items.index('" + value + "'))\n";
+                                }
+                            }
+                        } else if (actionText.includes("CLEAR ITEMS (")) {
+                            const clearMatch = actionText.match(/CLEAR ITEMS \(([^ )]+)\)/);
+                            if (clearMatch) {
+                                const target = clearMatch[1];
+                                const element = document.getElementById(target);
+                                const targetType = element ? getControlType(element) : '';
+                                if (targetType === 'Combobox') {
+                                    pyCode += indent + "self." + target + "['values'] = ()\n";
+                                } else {
+                                    pyCode += indent + "self." + target + ".delete(0, tk.END)\n";
+                                }
+                            }
+                        } else if (actionText.includes("SELECT ITEM (")) {
+                            const selectMatch = actionText.match(/SELECT ITEM \(([^ ]+) = '(.*)'\)/);
+                            if (selectMatch) {
+                                pyCode += indent + "self." + selectMatch[1] + ".set('" + selectMatch[2] + "')\n";
+                            }
+                        } else if (actionText.includes(".config(")) {
                             const actionMatch = actionText.match(/SET \(([^(]+)\.config\((.*)\)\)/);
                             if (actionMatch) {
-                                const control = actionMatch[1];
+                                const target = actionMatch[1];
                                 const config = actionMatch[2];
-                                // Use self. prefix for instance attributes
-                                pyCode += indent + "self." + control + ".config(" + config + ")\n";
+                                const element = document.getElementById(target);
+                                const targetType = element ? getControlType(element) : '';
+                                const textMatch = config.match(/^text='(.*)'$/);
+                                // "Enable" and "Show" both look like state='normal' in the
+                                // preview, so the action type is taken from the entry.
+                                const actionTypeAttr = entry.getAttribute('data-action-type') || '';
+                                if (targetType === 'Combobox' && textMatch) {
+                                    // A Combobox has no -text option; set() is the way
+                                    pyCode += indent + "self." + target + ".set('" + textMatch[1] + "')\n";
+                                } else if (actionTypeAttr === 'hide' || config === "state='hidden'") {
+                                    // Classic Tk widgets have no hidden state - unplace them
+                                    pyCode += indent + "self." + target + ".place_forget()\n";
+                                } else if (actionTypeAttr === 'show' && element) {
+                                    // ...and put them back where they are
+                                    pyCode += indent + "self." + target + ".place(x=" +
+                                        (parseInt(element.style.left) || 0) + ", y=" + (parseInt(element.style.top) || 0) +
+                                        ", width=" + (parseInt(element.style.width) || 0) +
+                                        ", height=" + (parseInt(element.style.height) || 0) + ")\n";
+                                } else {
+                                    // Use self. prefix for instance attributes
+                                    pyCode += indent + "self." + target + ".config(" + config + ")\n";
+                                }
                             }
                         } else if (actionText.includes(".delete(") && actionText.includes(".insert(")) {
                             // Handle Entry widget text setting (delete + insert pattern)
@@ -3415,6 +3483,10 @@
                                         // Check for event handler
                                         if (controlEventHandlers[menuItemId] && controlEventHandlers[menuItemId]['click']) {
                                             pyCode += ", command=self." + menuItemId + "_handler";
+                                            // The method the command points at
+                                            eventHandlerCode += "\n    def " + menuItemId + "_handler(self):\n";
+                                            eventHandlerCode += controlEventHandlers[menuItemId]['click']
+                                                .split('\n').map(line => "        " + line).join('\n') + "\n";
                                         }
                                         pyCode += ")\n";
                                     }
@@ -4302,9 +4374,35 @@
                     
                     document.getElementById('logicPreview').innerHTML = 'No conditions defined yet';
                     updateEventSelectorOptions(control);
+
+                    // A Menu keeps its logic per menu item, so reopen on the first item
+                    // that already has logic - otherwise the Logic Builder looks as if
+                    // the logic had never been saved.
+                    if (controlType === 'Menu') {
+                        const menuItemSelector = document.getElementById('menuItemSelector');
+                        if (menuItemSelector) {
+                            (control.getAttribute('data-menu-items') || '').split('\n').forEach(function(line) {
+                                const parts = line.trim().split('|').map(function(part) { return part.trim(); });
+                                if (parts.length < 2 || !parts[0] || !parts[1] || parts[1] === '---') {
+                                    return;
+                                }
+                                const candidate = controlId + "_" + parts[0].replace(/\s+/g, '') +
+                                    "_" + parts[1].replace(/\s+/g, '');
+                                if (controlEventHandlers[candidate] && controlEventHandlers[candidate]['click'] &&
+                                    !menuItemSelector.value) {
+                                    menuItemSelector.value = parts[0] + '|' + parts[1];
+                                }
+                            });
+                        }
+                    }
                     
-                    let defaultEventType = 'click';
+                    // A Menu attaches its logic to a menu item, so it opens on
+                    // "Menu Item Clicked"; every other control opens on Click.
+                    let defaultEventType = controlType === 'Menu' ? 'menu_click' : 'click';
                     let lookupControlId = controlId;
+                    // Where the script is stored for the looked-up target (a menu item
+                    // always keeps its logic under 'click').
+                    let lookupEventType = 'click';
                     let foundExistingLogic = false;
                     
                     if (eventSelector.value === 'menu_click') {
@@ -4316,7 +4414,7 @@
                                 if (parentMenu && childMenuItem) {
                                     lookupControlId = controlId + "_" + parentMenu.replace(/\s+/g, '') + "_" + childMenuItem.replace(/\s+/g, '');
                                     if (controlEventHandlers[lookupControlId] && controlEventHandlers[lookupControlId]['click']) {
-                                        defaultEventType = 'click';
+                                        lookupEventType = 'click';
                                         foundExistingLogic = true;
                                     }
                                 }
@@ -4327,6 +4425,7 @@
                             for (const eventType in controlEventHandlers[controlId]) {
                                 if (eventSelector.querySelector(`option[value="${eventType}"]`)) {
                                     defaultEventType = eventType;
+                                    lookupEventType = eventType;
                                     foundExistingLogic = true;
                                     break;
                                 }
@@ -4338,10 +4437,10 @@
                         eventSelector.value = defaultEventType;
                     }
                     
-                    if (foundExistingLogic && controlEventHandlers[lookupControlId] && controlEventHandlers[lookupControlId][defaultEventType]) {
-                        eventScript.value = controlEventHandlers[lookupControlId][defaultEventType];
+                    if (foundExistingLogic && controlEventHandlers[lookupControlId] && controlEventHandlers[lookupControlId][lookupEventType]) {
+                        eventScript.value = controlEventHandlers[lookupControlId][lookupEventType];
                         
-                        if (controlEventHandlers[lookupControlId] && controlEventHandlers[lookupControlId][defaultEventType] && controlEventHandlers[lookupControlId][defaultEventType].includes('# Generated from visual logic')) {
+                        if (controlEventHandlers[lookupControlId] && controlEventHandlers[lookupControlId][lookupEventType] && controlEventHandlers[lookupControlId][lookupEventType].includes('# Generated from visual logic')) {
                             const pyCodeWithoutMarker = eventScript.value
                                 .replace('# Generated from visual logic\n', '')
                                 .trim();
@@ -4364,8 +4463,8 @@
                             
                             visualTabBtn.click();
                             
-                            if (controlVisualLogic[lookupControlId] && controlVisualLogic[lookupControlId][defaultEventType]) {
-                                document.getElementById('logicPreview').innerHTML = controlVisualLogic[lookupControlId][defaultEventType];
+                            if (controlVisualLogic[lookupControlId] && controlVisualLogic[lookupControlId][lookupEventType]) {
+                                document.getElementById('logicPreview').innerHTML = controlVisualLogic[lookupControlId][lookupEventType];
                                 
                                 const deleteButtons = document.querySelectorAll('.delete-logic-entry');
                                 deleteButtons.forEach(button => {
@@ -4965,6 +5064,15 @@ print("${controlId} clicked!")`;
                     actionTypeSelect.innerHTML += '<option value="setText">Set Text</option>';
                 } else if (controlType === 'Label') {
                     actionTypeSelect.innerHTML += '<option value="setText">Set Text</option>';
+                } else if (controlType === 'Combobox') {
+                    actionTypeSelect.innerHTML += '<option value="setValue">Select Item</option>';
+                    actionTypeSelect.innerHTML += '<option value="addItem">Add Item</option>';
+                    actionTypeSelect.innerHTML += '<option value="removeItem">Remove Item</option>';
+                    actionTypeSelect.innerHTML += '<option value="clearItems">Clear Items</option>';
+                } else if (controlType === 'Listbox') {
+                    actionTypeSelect.innerHTML += '<option value="addItem">Add Item</option>';
+                    actionTypeSelect.innerHTML += '<option value="removeItem">Remove Item</option>';
+                    actionTypeSelect.innerHTML += '<option value="clearItems">Clear Items</option>';
                 }
             });
 
@@ -4973,7 +5081,7 @@ print("${controlId} clicked!")`;
                 const actionValueInput = document.getElementById('actionValue');
                 const actionValueBoolInput = document.getElementById('actionValueBool');
 
-                if (['setText'].includes(actionType)) {
+                if (['setText', 'setValue', 'addItem', 'removeItem'].includes(actionType)) {
                     actionValueInput.style.display = 'block';
                     actionValueBoolInput.style.display = 'none';
                     actionValueInput.disabled = false;
@@ -5134,6 +5242,7 @@ print("${controlId} clicked!")`;
             // Add else button
             document.getElementById('addElseBtn').addEventListener('click', function() {
                 const previewDiv = document.getElementById('logicPreview');
+                clearLogicPreviewPlaceholder();
                 const entryId = 'logic-entry-else-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
                 const entryHtml = `<div id="${entryId}" class="logic-entry" draggable="true" data-type="else">
                     <div class="logic-entry-content">
@@ -5146,9 +5255,19 @@ print("${controlId} clicked!")`;
                 previewDiv.insertAdjacentHTML('beforeend', entryHtml);
             });
 
+            // The preview starts with a placeholder - drop it once real entries exist
+            function clearLogicPreviewPlaceholder() {
+                const previewDiv = document.getElementById('logicPreview');
+                if (previewDiv && !previewDiv.querySelector('.logic-entry') &&
+                    previewDiv.textContent.trim() === 'No conditions defined yet') {
+                    previewDiv.innerHTML = '';
+                }
+            }
+
             // Function to add to logic preview
             function addToLogicPreview(type, obj) {
                 const previewDiv = document.getElementById('logicPreview');
+                clearLogicPreviewPlaceholder();
                 const entryId = 'logic-entry-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
 
                 let entryHtml = '';
@@ -5198,6 +5317,18 @@ print("${controlId} clicked!")`;
                             break;
                         case 'setSelected':
                             actionText = `SET (${obj.control}.select())` + (obj.value === 'False' ? ' (deselect)' : '');
+                            break;
+                        case 'setValue':
+                            actionText = `SELECT ITEM (${obj.control} = '${obj.value}')`;
+                            break;
+                        case 'addItem':
+                            actionText = `ADD ITEM (${obj.control} = '${obj.value}')`;
+                            break;
+                        case 'removeItem':
+                            actionText = `REMOVE ITEM (${obj.control} = '${obj.value}')`;
+                            break;
+                        case 'clearItems':
+                            actionText = `CLEAR ITEMS (${obj.control})`;
                             break;
                         case 'runScript':
                             actionText = `RUN SCRIPT (Or Run Script section)`;
@@ -5393,6 +5524,18 @@ print("${controlId} clicked!")`;
                             break;
                         case 'setSelected':
                             actionText = `SET (${control}.select())`;
+                            break;
+                        case 'setValue':
+                            actionText = `SELECT ITEM (${control} = '${newValue}')`;
+                            break;
+                        case 'addItem':
+                            actionText = `ADD ITEM (${control} = '${newValue}')`;
+                            break;
+                        case 'removeItem':
+                            actionText = `REMOVE ITEM (${control} = '${newValue}')`;
+                            break;
+                        case 'clearItems':
+                            actionText = `CLEAR ITEMS (${control})`;
                             break;
                         default:
                             actionText = `SET (${control}.config())`;
