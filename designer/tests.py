@@ -2,6 +2,7 @@
 import json
 import uuid
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -479,6 +480,20 @@ class PageTests(TestCase):
         self.assertIn("picker-only", content)             # caption for the local list
         self.assertIn("window.pfdLoadPublicSnippets", content)  # bridge fetch hook
         self.assertIn("codeLibraryPickerBanner", content)
+
+    def test_visual_logic_generator_emits_python_not_javascript(self):
+        """The Logic Builder writes real Python: no JavaScript braces left behind,
+        widget state read the Tkinter way, and empty blocks filled with pass."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('"} else:', template)
+        self.assertNotIn('"} elif ', template)
+        self.assertNotIn('+ "}\\n"', template)
+        self.assertIn("pendingBodyIndent", template)
+        self.assertIn('"pass\\n"', template)
+        self.assertIn("_var.get()", template)
+        self.assertIn(".cget('state')", template)
 
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))

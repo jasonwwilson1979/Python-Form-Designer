@@ -2548,6 +2548,16 @@
                 let ifBlockDepth = 0;
                 let conditionDepth = -1;
                 let inConditionChain = false;
+                // Indent of the block that has not received a statement yet - a
+                // block that stays empty gets a "pass" so the code still runs.
+                let pendingBodyIndent = null;
+
+                const closeEmptyBlock = function () {
+                    if (pendingBodyIndent !== null) {
+                        pyCode += pendingBodyIndent + "pass\n";
+                        pendingBodyIndent = null;
+                    }
+                };
 
                 for (let i = 0; i < entries.length; i++) {
                     const entry = entries[i];
@@ -2558,10 +2568,12 @@
                     if (entry.getAttribute('data-type') === 'else') {
                         if (ifBlockDepth > 0) {
                             ifBlockDepth--;
-                            pyCode += "    ".repeat(ifBlockDepth) + "} else:\n";
+                            closeEmptyBlock();
+                            pyCode += "    ".repeat(ifBlockDepth) + "else:\n";
                             ifBlockDepth++;
                             conditionDepth = ifBlockDepth - 1;
                             inConditionChain = false;
+                            pendingBodyIndent = "    ".repeat(ifBlockDepth);
                         }
                     } else if (conditionSpan) {
                         // This is a condition
@@ -2575,7 +2587,6 @@
                             const value = conditionMatch[4] || conditionMatch[5] || conditionMatch[6];
 
                             // Convert to Python condition - use self. prefix for instance attributes
-                            let pyCondition = "";
                             let pyValue = value;
                             
                             // Convert boolean values
@@ -2585,30 +2596,56 @@
                                 pyValue = '"' + value + '"';
                             }
 
-                            if (operator === "==") {
-                                pyCondition = "self." + control + ".cget('" + property + "') == " + pyValue;
-                            } else if (operator === "!=") {
-                                pyCondition = "self." + control + ".cget('" + property + "') != " + pyValue;
-                            } else if (operator === ">") {
-                                pyCondition = "self." + control + ".cget('" + property + "') > " + pyValue;
-                            } else if (operator === "<") {
-                                pyCondition = "self." + control + ".cget('" + property + "') < " + pyValue;
-                            } else if (operator === ">=") {
-                                pyCondition = "self." + control + ".cget('" + property + "') >= " + pyValue;
-                            } else if (operator === "<=") {
-                                pyCondition = "self." + control + ".cget('" + property + "') <= " + pyValue;
-                            } else {
-                                pyCondition = "self." + control + ".cget('" + property + "') " + operator + " " + pyValue;
+                            // The preview writes the property as cget('name'), so keep the
+                            // option name on its own before rebuilding the expression.
+                            const cgetMatch = property.match(/^cget\(\s*['"]([^'"]+)['"]\s*\)$/);
+                            const propertyName = cgetMatch ? cgetMatch[1] : property;
+
+                            // "selected", "enabled" and "visible" are not Tk options - the
+                            // state lives in the widget's variable/state, so read it the
+                            // way Tkinter does.
+                            let pyLeft = "self." + control + ".cget('" + propertyName + "')";
+                            let pyOperator = operator;
+                            const conditionControlType = getControlTypeById(control);
+                            if (propertyName === 'text' &&
+                                ['Entry', 'Combobox', 'Listbox'].includes(conditionControlType)) {
+                                // These widgets keep their text in get(), not in an option
+                                pyLeft = "self." + control + ".get()";
+                            } else if (propertyName === 'selected' && conditionControlType === 'Checkbutton') {
+                                pyLeft = "self." + control + "_var.get()";
+                            } else if (propertyName === 'selected' && conditionControlType === 'Radiobutton') {
+                                pyLeft = "self." + control + "_var.get()";
+                                pyValue = value === 'False' ? "''" : "'selected'";
+                            } else if (propertyName === 'enabled') {
+                                // Classic Tk widgets have no instate(): the state option is
+                                // 'normal' or 'disabled'.
+                                const wantsEnabled = (value === 'True') === (operator !== '!=');
+                                pyLeft = "self." + control + ".cget('state')";
+                                pyValue = wantsEnabled ? "'normal'" : "'disabled'";
+                                pyOperator = '==';
+                            } else if (propertyName === 'visible') {
+                                pyLeft = "self." + control + ".winfo_ismapped()";
                             }
 
+                            // "Contains" reads as <value> in <property>, so the operands
+                            // swap round for that operator.
+                            const isTextLikeProperty = pyLeft.indexOf(".cget(") !== -1 ||
+                                pyLeft.indexOf(".get()") !== -1;
+                            const pyCondition = (pyOperator === 'in' && isTextLikeProperty)
+                                ? pyValue + " in " + pyLeft
+                                : pyLeft + " " + pyOperator + " " + pyValue;
+
                             // Check if this is part of an if/elif chain
+                            closeEmptyBlock();
                             if (inConditionChain && ifBlockDepth === conditionDepth + 1) {
-                                pyCode += "    ".repeat(ifBlockDepth - 1) + "} elif " + pyCondition + ":\n";
+                                pyCode += "    ".repeat(ifBlockDepth - 1) + "elif " + pyCondition + ":\n";
+                                pendingBodyIndent = "    ".repeat(ifBlockDepth);
                             } else {
                                 pyCode += "    ".repeat(ifBlockDepth) + "if " + pyCondition + ":\n";
                                 ifBlockDepth++;
                                 conditionDepth = ifBlockDepth - 1;
                                 inConditionChain = true;
+                                pendingBodyIndent = "    ".repeat(ifBlockDepth);
                             }
                         }
                     } else if (actionSpan) {
@@ -2616,6 +2653,7 @@
                         const actionText = actionSpan.textContent;
                         const indent = "    ".repeat(ifBlockDepth);
                         const controlType = entry.getAttribute('data-control-type');
+                        const lengthBeforeAction = pyCode.length;
 
                         if (actionText.includes(".config(")) {
                             const actionMatch = actionText.match(/SET \(([^(]+)\.config\((.*)\)\)/);
@@ -2654,14 +2692,21 @@
                                 }
                             }
                         }
+
+                        // The block now has a statement, so it needs no "pass"
+                        if (pyCode.length > lengthBeforeAction) {
+                            pendingBodyIndent = null;
+                        }
                     }
                 }
 
-                // Close all open if blocks
-                while (ifBlockDepth > 0) {
-                    pyCode += "    ".repeat(ifBlockDepth - 1) + "}\n";
-                    ifBlockDepth--;
-                }
+                closeEmptyBlock();
+
+                // Python closes the if/elif/else blocks by indentation, so there is
+                // nothing to emit here - just reset the bookkeeping.
+                ifBlockDepth = 0;
+                conditionDepth = -1;
+                inConditionChain = false;
 
                 return pyCode;
             }
@@ -3276,11 +3321,17 @@
                             const script = controlEventHandlers[controlId][eventType];
                             
                             if (eventType === 'click') {
-                                if (controlType === 'Button') {
+                                // Button, Checkbutton and Radiobutton all take a command=,
+                                // everything else has to be bound to a mouse click.
+                                if (controlType === 'Button' || controlType === 'Checkbutton' ||
+                                    controlType === 'Radiobutton') {
                                     pyCode += "        self." + controlId + ".config(command=self." + controlId + "_on_click)\n";
                                     eventHandlerCode += "\n    def " + controlId + "_on_click(self):\n";
-                                    eventHandlerCode += script.split('\n').map(line => "        " + line).join('\n') + "\n";
+                                } else {
+                                    pyCode += "        self." + controlId + ".bind('<Button-1>', self." + controlId + "_on_click)\n";
+                                    eventHandlerCode += "\n    def " + controlId + "_on_click(self, event):\n";
                                 }
+                                eventHandlerCode += script.split('\n').map(line => "        " + line).join('\n') + "\n";
                             } else if (eventType === 'double_click') {
                                 pyCode += "        self." + controlId + ".bind('<Double-Button-1>', self." + controlId + "_on_double_click)\n";
                                 eventHandlerCode += "\n    def " + controlId + "_on_double_click(self, event):\n";
