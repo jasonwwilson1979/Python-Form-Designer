@@ -6,7 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="{% static 'designer/css/app.css' %}">
+    <link rel="stylesheet" href="{% static 'designer/css/app.css' %}?v={{ STATIC_VERSION }}">
     {% block extra_css %}{% endblock %}
 </head>
 <body class="app-body">
@@ -61,7 +61,7 @@
 
     {% if LIBRARY_API %}
         {{ LIBRARY_API|json_script:"library-api" }}
-        <script src="{% static 'designer/js/code-library.js' %}"></script>
+        <script src="{% static 'designer/js/code-library.js' %}?v={{ STATIC_VERSION }}"></script>
         <script>
             document.addEventListener('DOMContentLoaded', function () {
                 if (!window.FormDesignerLibrary) return;
