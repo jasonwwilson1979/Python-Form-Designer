@@ -1354,6 +1354,9 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button class="btn btn-secondary" id="insertSnippetIntoScriptBtn" style="margin-right: auto;" title="Search the code library and insert a snippet">
+                    <i class="fas fa-code"></i> Insert Code Snippet
+                </button>
                 <button class="btn btn-secondary" id="cancelScriptBtn">Cancel</button>
                 <button class="btn btn-primary" id="okScriptBtn">OK</button>
             </div>
@@ -1442,6 +1445,12 @@
             <div class="modal-header">
                 <div class="modal-title"><i class="fas fa-code"></i> Code Library</div>
                 <button class="close-modal" id="closeCodeLibrary">&times;</button>
+            </div>
+
+            <div class="picker-banner" id="codeLibraryPickerBanner" hidden>
+                <i class="fas fa-code"></i>
+                <span>Choose a snippet to insert into your script</span>
+                <button type="button" class="btn btn-ghost btn-sm" id="codeLibraryPickerCancel">Cancel</button>
             </div>
 
             <div class="library-bar">
@@ -2126,6 +2135,26 @@
                                 loadCodeSnippetsModal(searchTerm);
                             }
                         };
+
+                        // When the dialog was opened as a picker (from "Insert Code
+                        // Snippet" in the Add Script dialog) offer a direct Insert.
+                        const pickerActive = typeof window.pfdSnippetPickerActive === 'function' &&
+                            window.pfdSnippetPickerActive();
+                        if (pickerActive) {
+                            const insertBtn = document.createElement('button');
+                            insertBtn.className = 'btn btn-primary';
+                            insertBtn.innerHTML = '<i class="fas fa-plus"></i> Insert';
+                            insertBtn.style.cssText = `
+                                padding: 4px 8px;
+                                font-size: 12px;
+                            `;
+                            insertBtn.onclick = () => {
+                                if (typeof window.pfdPickerInsertSnippet === 'function') {
+                                    window.pfdPickerInsertSnippet(snippet.name, snippet.description, snippet.code);
+                                }
+                            };
+                            actionsDiv.appendChild(insertBtn);
+                        }
 
                         actionsDiv.appendChild(copyBtn);
                         actionsDiv.appendChild(editBtn);

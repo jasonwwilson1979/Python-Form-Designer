@@ -574,9 +574,20 @@
             const actions = document.createElement('div');
             actions.className = 'public-snippet-actions';
 
+            if (state.picker) {
+                const insertBtn = document.createElement('button');
+                insertBtn.type = 'button';
+                insertBtn.className = 'btn btn-primary btn-sm';
+                insertBtn.innerHTML = '<i class="fas fa-plus"></i> Insert';
+                insertBtn.addEventListener('click', function () {
+                    insertPickedSnippet(snippet.name, snippet.description, snippet.code);
+                });
+                actions.appendChild(insertBtn);
+            }
+
             const copyBtn = document.createElement('button');
             copyBtn.type = 'button';
-            copyBtn.className = 'btn btn-primary btn-sm';
+            copyBtn.className = state.picker ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm';
             copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copy to my library';
             copyBtn.addEventListener('click', function () {
                 copyPublicSnippet(snippet);
@@ -882,6 +893,73 @@
         }
     }
 
+    /* ------------------------------------------------------- snippet picker */
+    // Used by "Insert Code Snippet" in the Add Script dialog: opens the Code
+    // Library so a snippet can be searched for and inserted into the script.
+    function pickerActive() {
+        return !!state.picker;
+    }
+
+    function appendToScriptEditor(code) {
+        const textarea = document.getElementById('scriptEditorTextarea');
+        if (!textarea) {
+            return false;
+        }
+        const current = textarea.value;
+        textarea.value = current && current.trim()
+            ? current.replace(/\s*$/, '') + '\n' + code
+            : code;
+        return true;
+    }
+
+    function openSnippetPicker() {
+        state.picker = { active: true };
+        const banner = document.getElementById('codeLibraryPickerBanner');
+        if (banner) banner.hidden = false;
+
+        // open the library dialog: the designer renders the local list (and
+        // adds Insert buttons because the picker is active), the bridge renders
+        // the public list
+        const trigger = document.querySelector('.toolbar-item[title="Code Library"]');
+        if (trigger) {
+            trigger.click();
+        } else {
+            const modal = document.getElementById('codeLibraryModal');
+            if (modal) modal.style.display = 'flex';
+            loadPublicSnippets();
+        }
+    }
+
+    function closeSnippetPicker() {
+        state.picker = null;
+        const banner = document.getElementById('codeLibraryPickerBanner');
+        if (banner) banner.hidden = true;
+    }
+
+    function insertPickedSnippet(name, description, code) {
+        const inserted = appendToScriptEditor(code);
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code).catch(function () {});
+        }
+
+        closeSnippetPicker();
+        const libraryModal = document.getElementById('codeLibraryModal');
+        if (libraryModal) {
+            libraryModal.style.display = 'none';
+        }
+
+        const textarea = document.getElementById('scriptEditorTextarea');
+        if (textarea) {
+            textarea.focus();
+        }
+
+        toast(inserted
+            ? 'Snippet "' + name + '" inserted into your script'
+            : 'Snippet code copied to the clipboard',
+            inserted ? 'success' : 'error');
+    }
+
     /* -------------------------------------------------------- browser draft */
     function draftKey() {
         return DRAFT_PREFIX + (state.projectId || 'new');
@@ -1120,6 +1198,36 @@
             renderLogicBuilderSnippets();
         };
 
+        // "Insert Code Snippet" button in the Add Script dialog
+        on('insertSnippetIntoScriptBtn', 'click', function () {
+            openSnippetPicker();
+        });
+
+        on('codeLibraryPickerCancel', 'click', function () {
+            closeSnippetPicker();
+            const libraryModal = document.getElementById('codeLibraryModal');
+            if (libraryModal) {
+                libraryModal.style.display = 'none';
+            }
+        });
+
+        // Leaving the library dialog in any other way also ends picker mode
+        ['closeCodeLibrary', 'closeCodeLibraryBtn'].forEach(function (id) {
+            const button = document.getElementById(id);
+            if (button) {
+                button.addEventListener('click', closeSnippetPicker);
+            }
+        });
+
+        const libraryModalElement = document.getElementById('codeLibraryModal');
+        if (libraryModalElement) {
+            libraryModalElement.addEventListener('click', function (event) {
+                if (event.target === libraryModalElement) {
+                    closeSnippetPicker();
+                }
+            });
+        }
+
         document.addEventListener('keydown', function (event) {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
                 event.preventDefault();
@@ -1206,6 +1314,10 @@
             }
             updateChip(formName);
         };
+
+        // Used by the designer script to offer Insert buttons while picking
+        window.pfdSnippetPickerActive = pickerActive;
+        window.pfdPickerInsertSnippet = insertPickedSnippet;
 
         updateChip(state.projectName);
 

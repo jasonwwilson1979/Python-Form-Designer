@@ -237,6 +237,12 @@ ones - so you can insert code straight into a control's script with one click
 tab; *Copy to my library* saves a public snippet locally). That tab is only for
 finding and inserting code, so the "add snippet" form is not repeated there.
 
+The **Add Script dialog** (Logic Builder -> Visual Logic -> *Add Script*) has an
+**Insert Code Snippet** button on the left of its footer: it opens the Code
+Library as a picker (banner *"Choose a snippet to insert into your script"*, with
+a Cancel), and pressing **Insert** on any local or public snippet puts its code
+into the script box and returns you to the Add Script dialog, ready to press OK.
+
 There are two layers, shown as two tabs (the dialog always fits the screen: its
 header, tabs and search stay visible while the lists scroll, and the one search
 box filters **both** libraries by name, description and code):
