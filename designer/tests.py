@@ -469,6 +469,17 @@ class PageTests(TestCase):
         self.assertContains(response, "code-library.js?v=")
         self.assertContains(response, "app.css?v=")
 
+    def test_snippet_picker_lists_both_libraries(self):
+        """Insert Code Snippet (Add Script) shows the local and the published
+        snippets in one dialog, so nothing has to be fetched or tab-switched."""
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("designer:new_project"))
+        content = response.content.decode()
+        self.assertIn("picker-mode", content)             # CSS rules + JS toggle
+        self.assertIn("picker-only", content)             # caption for the local list
+        self.assertIn("window.pfdLoadPublicSnippets", content)  # bridge fetch hook
+        self.assertIn("codeLibraryPickerBanner", content)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)
