@@ -495,6 +495,29 @@ class PageTests(TestCase):
         self.assertIn("_var.get()", template)
         self.assertIn(".cget('state')", template)
 
+    def test_designer_wires_containers_context_menu_and_item_editors(self):
+        """The menu/dropdown editors, container drops, stacking order and
+        copy/paste must stay wired in the designer script."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        for expected in (
+            "saveMenuItemsFromPanel",
+            "saveDropdownOptionsFromPanel",
+            "CONTAINER_TYPES",
+            "findDropTarget",
+            "reparentControl",
+            "restackControls",
+            "controlMenuActions",
+            "canvasMenuActions",
+            "snapshotControl",
+            "instantiateSnapshot",
+            "pasteControlProperties",
+            "selectAllControls",
+            "const master = (parentElement",
+        ):
+            self.assertIn(expected, template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)

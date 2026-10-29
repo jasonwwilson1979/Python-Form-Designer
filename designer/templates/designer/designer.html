@@ -1591,6 +1591,12 @@
 
             let selectedControl = null;
             let currentTool = 'select'; // Default tool
+            // Snapshot taken by "Copy Control Properties" (right-click menu)
+            let controlClipboard = null;
+            // True while "Select All Controls" is active
+            let allControlsSelected = false;
+            // Where the last right-click happened (used by "Move to Container")
+            let lastContextMenuPoint = null;
             
             // Store event handlers for each control
             let controlEventHandlers = {};
@@ -1703,13 +1709,30 @@
                 // Get all form controls
                 const controls = formContainer.querySelectorAll('.form-control');
                 controls.forEach(control => {
+                    // Nested controls are saved as their own entry, so they must not
+                    // also be duplicated inside their container's markup.
+                    const contentClone = control.cloneNode(true);
+                    contentClone.querySelectorAll('.form-control').forEach(element => element.remove());
+                    contentClone.querySelectorAll('div[class^="resize-handle"]').forEach(handle => handle.remove());
+
+                    const attributes = {};
+                    Array.from(control.attributes).forEach(attribute => {
+                        if (attribute.name.indexOf('data-') === 0) {
+                            attributes[attribute.name] = attribute.value;
+                        }
+                    });
+
+                    const parent = control.parentElement;
+
                     const controlData = {
                         id: control.id,
                         type: control.getAttribute('data-type'),
                         style: control.getAttribute('style'),
-                        innerHTML: control.innerHTML,
+                        innerHTML: contentClone.innerHTML,
                         className: control.className,
-                        multiline: control.getAttribute('data-multiline') === 'true'
+                        multiline: control.getAttribute('data-multiline') === 'true',
+                        parentId: (parent && parent.classList.contains('form-control')) ? parent.id : null,
+                        attributes: attributes
                     };
 
                     // Get dropdown options if applicable
@@ -2738,6 +2761,67 @@
                 createControl(controlType, e);
             }
 
+            // Panels, GroupBoxes and ToolWindows can hold other controls
+            const CONTAINER_TYPES = ['panel', 'groupbox', 'toolwindow'];
+
+            function isContainerElement(element) {
+                return !!element && !!element.classList &&
+                    element.classList.contains('form-control') &&
+                    CONTAINER_TYPES.includes(element.getAttribute('data-type'));
+            }
+
+            // The container under a node, ignoring the control being dragged
+            function findDropContainer(node, exclude) {
+                let element = node;
+                while (element && element !== formContainer) {
+                    if (isContainerElement(element) &&
+                        (!exclude || (element !== exclude && !exclude.contains(element)))) {
+                        return element;
+                    }
+                    element = element.parentElement;
+                }
+                return null;
+            }
+
+            // Where a dropped control should live: a container, else the form
+            function findDropTarget(node, exclude) {
+                return findDropContainer(node, exclude) || formContainer;
+            }
+
+            // The topmost element at a point that is not the dragged control
+            function elementUnderPoint(x, y, exclude) {
+                const stack = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
+                for (let i = 0; i < stack.length; i++) {
+                    if (!exclude || (stack[i] !== exclude && !exclude.contains(stack[i]))) {
+                        return stack[i];
+                    }
+                }
+                return formContainer;
+            }
+
+            // Position of a point inside a parent, borders taken into account
+            function offsetInParent(parent, clientX, clientY) {
+                const rect = parent.getBoundingClientRect();
+                return {
+                    x: Math.round(clientX - rect.left - (parent.clientLeft || 0)),
+                    y: Math.round(clientY - rect.top - (parent.clientTop || 0))
+                };
+            }
+
+            // Move a control into another container/form, keeping where it is
+            function reparentControl(control, parent) {
+                if (!control || !parent || control.parentElement === parent || control.contains(parent)) {
+                    return false;
+                }
+                const rect = control.getBoundingClientRect();
+                parent.appendChild(control);
+                const offset = offsetInParent(parent, rect.left, rect.top);
+                control.style.left = Math.max(0, offset.x) + 'px';
+                control.style.top = Math.max(0, offset.y) + 'px';
+                restackControls();
+                return true;
+            }
+
             function createControl(type, e) {
                 const controlId = 'ctrl_' + Date.now();
                 const control = document.createElement('div');
@@ -2748,17 +2832,12 @@
                 control.setAttribute('data-visible', 'true');
                 control.setAttribute('data-enabled', 'true');
 
-                // Set initial position
-                const rect = formContainer.getBoundingClientRect();
-                let x = e.clientX - rect.left;
-                let y = e.clientY - rect.top;
-                
-                // Adjust for scroll
-                x += formContainer.scrollLeft;
-                y += formContainer.scrollTop;
+                // Dropping onto a Panel/GroupBox/ToolWindow puts the control inside it
+                const parent = findDropTarget(e.target || elementUnderPoint(e.clientX, e.clientY));
+                const offset = offsetInParent(parent, e.clientX, e.clientY);
 
-                control.style.left = x + 'px';
-                control.style.top = y + 'px';
+                control.style.left = (offset.x + parent.scrollLeft) + 'px';
+                control.style.top = (offset.y + parent.scrollTop) + 'px';
 
                 // Set default size based on type
                 switch(type) {
@@ -2828,7 +2907,8 @@
                         break;
                 }
 
-                formContainer.appendChild(control);
+                parent.appendChild(control);
+                restackControls();
                 selectControl({target: control});
                 generateRealTimeCode();
             }
@@ -2894,6 +2974,31 @@
             // Delete the selected control - used by the Delete key, the top bar
             // button, the toolbar bin and the right-click menu.
             function deleteSelectedControl() {
+                // "Select All Controls" marks every control, so remove them all
+                if (allControlsSelected) {
+                    const allControls = Array.from(formContainer.querySelectorAll('.form-control'));
+                    allControlsSelected = false;
+                    selectedControl = null;
+                    if (!allControls.length) {
+                        return false;
+                    }
+                    allControls.forEach(function(control) {
+                        control.classList.remove('selected');
+                        if (controlEventHandlers[control.id]) {
+                            delete controlEventHandlers[control.id];
+                        }
+                        if (controlVisualLogic[control.id]) {
+                            delete controlVisualLogic[control.id];
+                        }
+                        if (control.parentNode) {
+                            control.parentNode.removeChild(control);
+                        }
+                    });
+                    showFormProperties();
+                    generateRealTimeCode();
+                    return true;
+                }
+
                 if (!selectedControl) {
                     return false;
                 }
@@ -2920,6 +3025,14 @@
             }
 
             function selectControl(e) {
+                // Leaving "Select All Controls" mode clears the marks
+                if (allControlsSelected) {
+                    allControlsSelected = false;
+                    formContainer.querySelectorAll('.form-control.selected').forEach(function(control) {
+                        control.classList.remove('selected');
+                    });
+                }
+
                 // Deselect previous control
                 if (selectedControl) {
                     selectedControl.classList.remove('selected');
@@ -3116,10 +3229,17 @@
                     const width = parseInt(control.style.width) || 0;
                     const height = parseInt(control.style.height) || 0;
 
+                    // A control placed inside a Panel/GroupBox/ToolWindow is created
+                    // with that container as its master.
+                    const parentElement = control.parentElement;
+                    const master = (parentElement && parentElement.classList.contains('form-control'))
+                        ? "self." + parentElement.id
+                        : "self";
+
                     pyCode += "        # " + controlType + " - " + controlId + "\n";
 
                     if (controlType === 'Label') {
-                        pyCode += "        self." + controlId + " = tk.Label(self, text='" + text.replace(/'/g, "\\'") + "'";
+                        pyCode += "        self." + controlId + " = tk.Label(" + master + ", text='" + text.replace(/'/g, "\\'") + "'";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         const fgColor = rgbToHex(computedStyle.color);
@@ -3134,9 +3254,9 @@
                     } else if (controlType === 'Entry') {
                         const isMultiline = control.getAttribute('data-multiline') === 'true';
                         if (isMultiline) {
-                            pyCode += "        self." + controlId + " = tk.Text(self";
+                            pyCode += "        self." + controlId + " = tk.Text(" + master;
                         } else {
-                            pyCode += "        self." + controlId + " = tk.Entry(self";
+                            pyCode += "        self." + controlId + " = tk.Entry(" + master;
                         }
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
@@ -3153,7 +3273,7 @@
                         }
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Button') {
-                        pyCode += "        self." + controlId + " = tk.Button(self, text='" + text.replace(/'/g, "\\'") + "'";
+                        pyCode += "        self." + controlId + " = tk.Button(" + master + ", text='" + text.replace(/'/g, "\\'") + "'";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         const fgColor = rgbToHex(computedStyle.color);
@@ -3167,7 +3287,7 @@
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Checkbutton') {
                         pyCode += "        self." + controlId + "_var = tk.BooleanVar()\n";
-                        pyCode += "        self." + controlId + " = tk.Checkbutton(self, text='" + text.replace(/'/g, "\\'") + "', variable=self." + controlId + "_var";
+                        pyCode += "        self." + controlId + " = tk.Checkbutton(" + master + ", text='" + text.replace(/'/g, "\\'") + "', variable=self." + controlId + "_var";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         const fgColor = rgbToHex(computedStyle.color);
@@ -3181,7 +3301,7 @@
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Radiobutton') {
                         pyCode += "        self." + controlId + "_var = tk.StringVar()\n";
-                        pyCode += "        self." + controlId + " = tk.Radiobutton(self, text='" + text.replace(/'/g, "\\'") + "', variable=self." + controlId + "_var, value='selected'";
+                        pyCode += "        self." + controlId + " = tk.Radiobutton(" + master + ", text='" + text.replace(/'/g, "\\'") + "', variable=self." + controlId + "_var, value='selected'";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         const fgColor = rgbToHex(computedStyle.color);
@@ -3194,7 +3314,7 @@
                         pyCode += ")\n";
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Combobox') {
-                        pyCode += "        self." + controlId + " = ttk.Combobox(self, state='readonly'\n";
+                        pyCode += "        self." + controlId + " = ttk.Combobox(" + master + ", state='readonly'\n";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         if (bgColor && bgColor !== '#ffffff' && bgColor !== '#f0f0f0') {
@@ -3215,7 +3335,7 @@
                         }
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Listbox') {
-                        pyCode += "        self." + controlId + " = tk.Listbox(self, selectmode=tk.EXTENDED\n";
+                        pyCode += "        self." + controlId + " = tk.Listbox(" + master + ", selectmode=tk.EXTENDED\n";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         const fgColor = rgbToHex(computedStyle.color);
@@ -3235,7 +3355,7 @@
                         }
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'Frame') {
-                        pyCode += "        self." + controlId + " = tk.Frame(self";
+                        pyCode += "        self." + controlId + " = tk.Frame(" + master;
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         if (bgColor && bgColor !== '#ffffff' && bgColor !== '#f0f0f0') {
@@ -3244,7 +3364,7 @@
                         pyCode += ")\n";
                         pyCode += "        self." + controlId + ".place(x=" + left + ", y=" + top + ", width=" + width + ", height=" + height + ")\n";
                     } else if (controlType === 'LabelFrame') {
-                        pyCode += "        self." + controlId + " = tk.LabelFrame(self, text='" + text.replace(/'/g, "\\'") + "'";
+                        pyCode += "        self." + controlId + " = tk.LabelFrame(" + master + ", text='" + text.replace(/'/g, "\\'") + "'";
                         const computedStyle = document.defaultView.getComputedStyle(control);
                         const bgColor = rgbToHex(computedStyle.backgroundColor);
                         if (bgColor && bgColor !== '#ffffff' && bgColor !== '#f0f0f0') {
@@ -3256,15 +3376,12 @@
                         pyCode += "        self." + controlId + " = tk.Menu(self)\n";
                         pyCode += "        self.config(menu=self." + controlId + ")\n";
                         
-                        // Get menu items
-                        const storedMenuItems = control.getAttribute('data-menu-items');
-                        const menuItemsTextarea = document.getElementById('propMenuItems');
+                        // Get menu items (a menu with no items of its own falls back to
+                        // a small sample so the generated form shows something)
                         let menuItemsText = '';
                         
-                        if (storedMenuItems) {
-                            menuItemsText = storedMenuItems;
-                        } else if (menuItemsTextarea && menuItemsTextarea.value) {
-                            menuItemsText = menuItemsTextarea.value;
+                        if (control.hasAttribute('data-menu-items')) {
+                            menuItemsText = control.getAttribute('data-menu-items') || '';
                         } else {
                             menuItemsText = "File|New\nFile|Open\nFile|---\nFile|Save\nEdit|Copy\nEdit|Paste";
                         }
@@ -3523,9 +3640,18 @@
                     generateRealTimeCode();
                 }
 
-                function onMouseUp() {
+                function onMouseUp(e) {
                     document.removeEventListener('mousemove', onMouseMove);
                     document.removeEventListener('mouseup', onMouseUp);
+
+                    // Released over a container (or over the canvas) -> move the
+                    // control in or out of that container, keeping its position.
+                    const target = findDropTarget(
+                        elementUnderPoint(e.clientX, e.clientY, control), control);
+                    if (reparentControl(control, target)) {
+                        updatePropertiesPanel(control);
+                        generateRealTimeCode();
+                    }
                 }
 
                 document.addEventListener('mousemove', onMouseMove);
@@ -3571,6 +3697,7 @@
 
             formContainer.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
+                lastContextMenuPoint = { x: e.clientX, y: e.clientY };
                 const control = e.target.closest('.form-control');
                 if (control) {
                     selectControl({target: control});
@@ -3620,6 +3747,250 @@
                     generateRealTimeCode();
                 });
             }
+
+            // Stacking order ----------------------------------------------------
+            // Controls are absolutely positioned siblings, so the DOM order is the
+            // stacking order - and the order the generated Python creates them in.
+            function restackControls() {
+                document.querySelectorAll('.form-control').forEach(function(control) {
+                    const parent = control.parentElement;
+                    if (!parent) {
+                        return;
+                    }
+                    const index = Array.prototype.indexOf.call(parent.children, control);
+                    control.style.zIndex = String(10 + index);
+                });
+            }
+
+            function bringSelectedToFront() {
+                if (!selectedControl || selectedControl === formContainer || !selectedControl.parentElement) {
+                    return false;
+                }
+                selectedControl.parentElement.appendChild(selectedControl);
+                restackControls();
+                generateRealTimeCode();
+                return true;
+            }
+
+            function sendSelectedToBack() {
+                if (!selectedControl || selectedControl === formContainer || !selectedControl.parentElement) {
+                    return false;
+                }
+                const parent = selectedControl.parentElement;
+                parent.insertBefore(selectedControl, parent.firstElementChild);
+                restackControls();
+                generateRealTimeCode();
+                return true;
+            }
+
+            // Copy / paste ------------------------------------------------------
+            // "Copy Control Properties" keeps a snapshot; "Paste Control
+            // Properties" applies it to another control and "Paste Control"
+            // recreates the whole control (with its children and event handlers).
+            function snapshotControl(control) {
+                const clone = control.cloneNode(true);
+                clone.querySelectorAll('div[class^="resize-handle"]').forEach(function(handle) {
+                    handle.remove();
+                });
+
+                const attributes = {};
+                Array.from(control.attributes).forEach(function(attribute) {
+                    if (attribute.name.indexOf('data-') === 0) {
+                        attributes[attribute.name] = attribute.value;
+                    }
+                });
+
+                const parent = control.parentElement;
+
+                return {
+                    type: control.getAttribute('data-type'),
+                    style: control.getAttribute('style') || '',
+                    left: parseInt(control.style.left) || 0,
+                    top: parseInt(control.style.top) || 0,
+                    parentId: (parent && parent.classList.contains('form-control')) ? parent.id : null,
+                    attributes: attributes,
+                    html: clone.innerHTML,
+                    eventHandlers: controlEventHandlers[control.id]
+                        ? JSON.parse(JSON.stringify(controlEventHandlers[control.id])) : null,
+                    visualLogic: controlVisualLogic[control.id]
+                        ? JSON.parse(JSON.stringify(controlVisualLogic[control.id])) : null,
+                    children: Array.from(control.children)
+                        .filter(function(child) {
+                            return child.classList && child.classList.contains('form-control');
+                        })
+                        .map(snapshotControl)
+                };
+            }
+
+            // The control's own markup without the nested controls it holds
+            function snapshotContentHtml(snapshot) {
+                const holder = document.createElement('div');
+                holder.innerHTML = snapshot.html || '';
+                holder.querySelectorAll('.form-control').forEach(function(element) {
+                    element.remove();
+                });
+                return holder.innerHTML;
+            }
+
+            function instantiateSnapshot(snapshot, parent, offsetX, offsetY) {
+                const control = document.createElement('div');
+                const controlId = 'ctrl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+                control.id = controlId;
+                control.className = 'form-control';
+                control.setAttribute('data-type', snapshot.type);
+                Object.keys(snapshot.attributes || {}).forEach(function(name) {
+                    control.setAttribute(name, snapshot.attributes[name]);
+                });
+                control.style.cssText = snapshot.style || '';
+                control.style.left = Math.max(0, (snapshot.left || 0) + (offsetX || 0)) + 'px';
+                control.style.top = Math.max(0, (snapshot.top || 0) + (offsetY || 0)) + 'px';
+                control.innerHTML = snapshotContentHtml(snapshot);
+
+                if (snapshot.eventHandlers) {
+                    controlEventHandlers[controlId] = JSON.parse(JSON.stringify(snapshot.eventHandlers));
+                }
+                if (snapshot.visualLogic) {
+                    controlVisualLogic[controlId] = JSON.parse(JSON.stringify(snapshot.visualLogic));
+                }
+
+                (snapshot.children || []).forEach(function(childSnapshot) {
+                    control.appendChild(instantiateSnapshot(childSnapshot, control, 0, 0));
+                });
+
+                parent.appendChild(control);
+                return control;
+            }
+
+            function copyControlProperties() {
+                if (!selectedControl || selectedControl === formContainer) {
+                    alert('Select a control first, then copy its properties.');
+                    return false;
+                }
+                controlClipboard = snapshotControl(selectedControl);
+                return true;
+            }
+
+            function pasteControlProperties() {
+                if (!controlClipboard) {
+                    alert('Nothing copied yet - right-click a control and choose "Copy Control Properties" first.');
+                    return false;
+                }
+                if (!selectedControl || selectedControl === formContainer) {
+                    alert('Select the control that should receive the copied properties.');
+                    return false;
+                }
+
+                const snapshot = controlClipboard;
+                const keepLeft = selectedControl.style.left;
+                const keepTop = selectedControl.style.top;
+
+                selectedControl.style.cssText = snapshot.style || '';
+                selectedControl.style.left = keepLeft;
+                selectedControl.style.top = keepTop;
+
+                Object.keys(snapshot.attributes || {}).forEach(function(name) {
+                    if (name === 'data-type') {
+                        return;
+                    }
+                    selectedControl.setAttribute(name, snapshot.attributes[name]);
+                });
+
+                selectedControl.innerHTML = snapshotContentHtml(snapshot);
+                addResizeHandles(selectedControl);
+                updatePropertiesPanel(selectedControl);
+                setPropertiesPanelTarget(getControlType(selectedControl) + ' - ' + selectedControl.id);
+                generateRealTimeCode();
+                return true;
+            }
+
+            function pasteControl() {
+                if (!controlClipboard) {
+                    alert('Nothing copied yet - right-click a control and choose "Copy Control Properties" first.');
+                    return false;
+                }
+                const storedParent = controlClipboard.parentId
+                    ? document.getElementById(controlClipboard.parentId) : null;
+                const parent = storedParent || formContainer;
+                const created = instantiateSnapshot(controlClipboard, parent, 20, 20);
+                selectControl({target: created});
+                generateRealTimeCode();
+                return true;
+            }
+
+            function selectAllControls() {
+                const controls = formContainer.querySelectorAll('.form-control');
+                if (!controls.length) {
+                    return false;
+                }
+                if (selectedControl) {
+                    selectedControl.classList.remove('selected');
+                    selectedControl.querySelectorAll('div[class^="resize-handle"]').forEach(function(handle) {
+                        handle.remove();
+                    });
+                }
+                selectedControl = null;
+                allControlsSelected = true;
+                controls.forEach(function(control) {
+                    control.classList.add('selected');
+                });
+                setPropertiesPanelTarget(controls.length + ' controls selected');
+                notifySelectionChanged(null);
+                return true;
+            }
+
+            function moveSelectedIntoContainer() {
+                if (!selectedControl || selectedControl === formContainer) {
+                    alert('Select a control first.');
+                    return false;
+                }
+                const point = lastContextMenuPoint;
+                const under = point
+                    ? elementUnderPoint(point.x, point.y, selectedControl)
+                    : formContainer;
+                const container = findDropContainer(under, selectedControl);
+                if (!container) {
+                    alert('Right-click inside a Panel, GroupBox or ToolWindow to move the control into it.');
+                    return false;
+                }
+                if (reparentControl(selectedControl, container)) {
+                    updatePropertiesPanel(selectedControl);
+                    generateRealTimeCode();
+                }
+                return true;
+            }
+
+            // Right-click menu entries (control menu)
+            const controlMenuActions = {
+                moveToContainer: moveSelectedIntoContainer,
+                copyControlProperties: copyControlProperties,
+                pasteControlProperties: pasteControlProperties,
+                bringToFront: bringSelectedToFront,
+                sendToBack: sendSelectedToBack
+            };
+            Object.keys(controlMenuActions).forEach(function(id) {
+                const item = document.getElementById(id);
+                if (item) {
+                    item.addEventListener('click', function() {
+                        hideContextMenus();
+                        controlMenuActions[id]();
+                    });
+                }
+            });
+
+            // Right-click menu entries (canvas menu)
+            const canvasMenuActions = {
+                selectAllControls: selectAllControls,
+                pasteControl: pasteControl
+            };
+            Object.keys(canvasMenuActions).forEach(function(id) {
+                const item = document.getElementById(id);
+                if (item) {
+                    item.addEventListener('click', function() {
+                        hideContextMenus();
+                        canvasMenuActions[id]();
+                    });
+                }
+            });
 
             // Keyboard: Delete / Backspace removes the selected control
             document.addEventListener('keydown', function(e) {
@@ -3735,6 +4106,112 @@
                 }
                 generateRealTimeCode();
             });
+
+            // Menu items -------------------------------------------------------
+            // The textarea holds "File|New" style lines; saving stores them on the
+            // control so the menu, the code preview and the Logic Builder's menu
+            // item selector all see the same list.
+            function menuItemNames(control) {
+                const names = [];
+                (control.getAttribute('data-menu-items') || '').split('\n').forEach(function(line) {
+                    const trimmed = line.trim();
+                    if (!trimmed) return;
+                    const parent = trimmed.split('|')[0].trim();
+                    if (parent && names.indexOf(parent) === -1) {
+                        names.push(parent);
+                    }
+                });
+                return names;
+            }
+
+            function updateMenuControlPreview(control) {
+                const label = control.querySelector('span');
+                if (!label) return;
+                const names = menuItemNames(control);
+                label.textContent = names.length ? 'Menu: ' + names.join(', ') : 'Menu';
+            }
+
+            function saveMenuItemsFromPanel() {
+                if (!selectedControl || getControlType(selectedControl) !== 'Menu') {
+                    return false;
+                }
+                const items = document.getElementById('propMenuItems').value;
+                if (selectedControl.getAttribute('data-menu-items') === items) {
+                    return false;
+                }
+                selectedControl.setAttribute('data-menu-items', items);
+                updateMenuControlPreview(selectedControl);
+                populateMenuItemsSelector(selectedControl, document.getElementById('menuItemSelector'));
+                generateRealTimeCode();
+                return true;
+            }
+
+            const updateMenuBtn = document.getElementById('updateMenuBtn');
+            if (updateMenuBtn) {
+                updateMenuBtn.addEventListener('click', function() {
+                    if (!saveMenuItemsFromPanel()) {
+                        generateRealTimeCode();
+                    }
+                });
+            }
+
+            const propMenuItems = document.getElementById('propMenuItems');
+            if (propMenuItems) {
+                // Also save when the field loses focus, so clicking another control
+                // no longer throws the typed items away.
+                propMenuItems.addEventListener('change', saveMenuItemsFromPanel);
+            }
+
+            // Dropdown (Combobox / Listbox) options ----------------------------
+            function saveDropdownOptionsFromPanel() {
+                if (!selectedControl) {
+                    return false;
+                }
+                const controlType = getControlType(selectedControl);
+                if (controlType !== 'Combobox' && controlType !== 'Listbox') {
+                    return false;
+                }
+                const select = selectedControl.querySelector('select');
+                if (!select) {
+                    return false;
+                }
+
+                const lines = document.getElementById('propDropdownOptions').value
+                    .split('\n')
+                    .map(function(line) { return line.trim(); })
+                    .filter(function(line) { return line.length > 0; });
+
+                const current = Array.from(select.options).map(function(option) { return option.text; });
+                if (current.join('\n') === lines.join('\n')) {
+                    return false;
+                }
+
+                select.innerHTML = '';
+                (lines.length ? lines : ['Option 1']).forEach(function(text) {
+                    const option = document.createElement('option');
+                    option.textContent = text;
+                    select.appendChild(option);
+                });
+                if (controlType === 'Listbox') {
+                    select.setAttribute('multiple', 'multiple');
+                }
+                generateRealTimeCode();
+                return true;
+            }
+
+            const updateOptionsBtn = document.getElementById('updateOptionsBtn');
+            if (updateOptionsBtn) {
+                updateOptionsBtn.addEventListener('click', function() {
+                    if (!saveDropdownOptionsFromPanel()) {
+                        generateRealTimeCode();
+                    }
+                });
+            }
+
+            const propDropdownOptions = document.getElementById('propDropdownOptions');
+            if (propDropdownOptions) {
+                propDropdownOptions.addEventListener('change', saveDropdownOptionsFromPanel);
+            }
 
             document.getElementById('propVisible').addEventListener('change', function() {
                 if (selectedControl) {
@@ -5130,16 +5607,30 @@ print("${controlId} clicked!")`;
                 showFormProperties();
 
                 if (formData.controls) {
+                    // Create every control first, then move the nested ones into their
+                    // container so the saved order does not matter.
+                    const createdById = {};
                     formData.controls.forEach(controlData => {
                         const controlElement = document.createElement('div');
                         controlElement.id = controlData.id;
                         controlElement.setAttribute('data-type', controlData.type);
-                        controlElement.className = controlData.className;
+                        controlElement.className = (controlData.className || 'form-control')
+                            .replace(/\bselected\b/g, '')
+                            .trim() || 'form-control';
                         controlElement.setAttribute('style', controlData.style);
                         controlElement.innerHTML = controlData.innerHTML;
 
                         if (controlData.multiline && controlData.type === 'textbox') {
                             controlElement.setAttribute('data-multiline', 'true');
+                        }
+
+                        // data-menu-items, data-visible, data-enabled, ...
+                        if (controlData.attributes) {
+                            Object.keys(controlData.attributes).forEach(name => {
+                                if (name !== 'data-type') {
+                                    controlElement.setAttribute(name, controlData.attributes[name]);
+                                }
+                            });
                         }
 
                         if (controlData.dropdownOptions && controlElement.querySelector('select')) {
@@ -5153,8 +5644,19 @@ print("${controlId} clicked!")`;
                             });
                         }
 
+                        createdById[controlElement.id] = controlElement;
                         formContainer.appendChild(controlElement);
                     });
+
+                    formData.controls.forEach(controlData => {
+                        const element = createdById[controlData.id];
+                        const parent = controlData.parentId ? createdById[controlData.parentId] : null;
+                        if (element && parent && parent !== element && !element.contains(parent)) {
+                            parent.appendChild(element);
+                        }
+                    });
+
+                    restackControls();
                 }
 
                 if (formData.eventHandlers) {
