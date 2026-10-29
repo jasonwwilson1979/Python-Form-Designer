@@ -916,6 +916,12 @@
                 <a class="btn btn-ghost btn-sm" id="myFormsLink" href="{% url 'designer:dashboard' %}" title="Back to my forms">
                     <i class="fas fa-folder-open"></i> My forms
                 </a>
+                <button type="button" class="btn btn-ghost btn-sm" id="codeLibraryBtn" title="Code library - save and reuse snippets">
+                    <i class="fas fa-code"></i> Code Library
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" id="deleteControlBtn" title="Delete the selected control (Delete key)" disabled>
+                    <i class="fas fa-trash-alt"></i> Delete
+                </button>
                 <button type="button" class="btn btn-ghost btn-sm" id="shareBtn" title="Share this form">
                     <i class="fas fa-share-alt"></i> Share
                 </button>
@@ -941,10 +947,14 @@
         <!-- Main Content -->
         <div class="main-content">
             <div class="header">
-                <h1><i class="fas fa-window-maximize"></i> Python Form Designer <span class="version-badge" title="Application version">v{{ APP_VERSION }}</span>
-                    <span class="project-chip" id="projectChip">{% if project %}{{ project.name }}{% else %}Unsaved form{% endif %}</span>
-                </h1>
+                <h1><i class="fas fa-window-maximize"></i> Python Form Designer <span class="version-badge" title="Application version">v{{ APP_VERSION }}</span></h1>
                 <div class="header-actions">
+                    <label class="project-name-field" for="projectNameInput" title="The name this form is saved under in My forms">
+                        <i class="fas fa-tag"></i>
+                        <input type="text" id="projectNameInput" maxlength="150" placeholder="Untitled form"
+                               value="{% if project %}{{ project.name }}{% endif %}"
+                               {% if bootstrap.readOnly %}readonly{% endif %}>
+                    </label>
                     <span class="save-status" id="saveStatus" data-state="idle">
                         <i class="fas fa-circle"></i> <span id="saveStatusText">Local draft only</span>
                     </span>
@@ -1041,7 +1051,9 @@
 
                 <!-- Properties Panel -->
                 <div class="properties-panel">
-                    <div class="panel-title">Properties</div>
+                    <div class="panel-title">Properties
+                        <span class="properties-target" id="propertiesTarget">Form</span>
+                    </div>
                     
                     <div class="property-group">
                         <label class="property-label">(Name)</label>
@@ -1452,6 +1464,32 @@
                         <div id="codeLibraryModalEmptyMessage" style="text-align: center; padding: 20px; color: #999;">No code snippets saved yet</div>
                     </div>
                 </div>
+
+                <div class="property-group">
+                    <label class="property-label">
+                        <i class="fas fa-globe"></i> Public code library
+                        <span class="library-hint" id="publicLibraryHint">Shared snippets published by administrators</span>
+                    </label>
+
+                    <div id="publishSnippetPanel" class="publish-panel" hidden>
+                        <select class="property-input" id="publishSnippetSource" title="Fill the form from one of your own snippets">
+                            <option value="">&mdash; choose one of my snippets &mdash;</option>
+                        </select>
+                        <div class="publish-grid">
+                            <input type="text" class="property-input" id="publishSnippetName" placeholder="Snippet name">
+                            <input type="text" class="property-input" id="publishSnippetDescription" placeholder="Description (optional)">
+                        </div>
+                        <textarea class="property-input" id="publishSnippetCode" rows="4" placeholder="Python code..." style="font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;"></textarea>
+                        <div class="publish-actions">
+                            <button class="btn btn-primary btn-sm" id="publishSnippetBtn"><i class="fas fa-cloud-upload-alt"></i> Publish to public library</button>
+                            <span class="publish-status" id="publishSnippetStatus"></span>
+                        </div>
+                    </div>
+
+                    <div id="publicSnippetList" class="public-snippet-list">
+                        <div class="empty-state">Loading the public code library...</div>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="closeCodeLibraryBtn">Close</button>
@@ -1573,7 +1611,8 @@
                     const title = item.getAttribute('title');
                     switch(title) {
                         case 'Delete':
-                            // Delete functionality handled separately
+                            // Delete the selected control
+                            deleteSelectedControl();
                             break;
                         case 'Load':
                             // Load functionality handled separately
@@ -1612,17 +1651,21 @@
             // Collect the whole form as a serialisable object. Used for browser
             // drafts, JSON export and for saving to the Django backend.
             function collectFormData(fileName) {
+                // Anything typed in the form properties panel is applied first -
+                // but a selected control must never leak into the form's values.
+                syncFormPropertiesFromPanel();
+
                 const formData = {
                     fileName: fileName,
                     timestamp: new Date().toISOString(),
                     formStructure: {
-                        name: document.getElementById('propName').value,
-                        text: document.getElementById('propText').value,
-                        size: document.getElementById('propSize').value,
-                        location: document.getElementById('propLocation').value,
-                        backColor: document.getElementById('propBackColor').value,
-                        foreColor: document.getElementById('propForeColor').value,
-                        font: document.getElementById('propFont').value
+                        name: formProperties.name,
+                        text: formProperties.text,
+                        size: formProperties.size,
+                        location: formProperties.location,
+                        backColor: formProperties.backColor,
+                        foreColor: formProperties.foreColor,
+                        font: formProperties.font
                     },
                     controls: [],
                     eventHandlers: controlEventHandlers,
@@ -2697,6 +2740,92 @@
                 generateRealTimeCode();
             }
 
+            // Show which object the properties panel is editing
+            function setPropertiesPanelTarget(label) {
+                const target = document.getElementById('propertiesTarget');
+                if (target) {
+                    target.textContent = label || 'Form';
+                }
+            }
+
+            // Put the form's own property values into the properties panel and
+            // make sure no control is selected.
+            function showFormProperties() {
+                selectedControl = null;
+
+                document.getElementById('propName').value = formProperties.name;
+                document.getElementById('propText').value = formProperties.text;
+                document.getElementById('propSize').value = formProperties.size;
+                document.getElementById('propLocation').value = formProperties.location;
+                document.getElementById('propBackColor').value = formProperties.backColor;
+                document.getElementById('propForeColor').value = formProperties.foreColor;
+                document.getElementById('propFont').value = formProperties.font;
+
+                // These groups only apply to controls
+                document.getElementById('textBoxOptionsGroup').style.display = 'none';
+                document.getElementById('dropdownOptionsGroup').style.display = 'none';
+                document.getElementById('menuEditorGroup').style.display = 'none';
+                document.getElementById('propVisible').checked = true;
+                document.getElementById('propEnabled').checked = true;
+
+                setPropertiesPanelTarget('Form');
+                notifySelectionChanged(null);
+            }
+
+            // Copy what is currently typed in the properties panel back into
+            // formProperties. Only valid while no control is selected, so saving
+            // never picks up a control's values by mistake.
+            function syncFormPropertiesFromPanel() {
+                if (selectedControl) {
+                    return;
+                }
+                const name = document.getElementById('propName').value.trim();
+                if (name) {
+                    formProperties.name = name;
+                }
+                formProperties.text = document.getElementById('propText').value;
+                formProperties.size = document.getElementById('propSize').value;
+                formProperties.location = document.getElementById('propLocation').value;
+                formProperties.backColor = document.getElementById('propBackColor').value;
+                formProperties.foreColor = document.getElementById('propForeColor').value;
+                formProperties.font = document.getElementById('propFont').value;
+            }
+
+            // Tell the Django bridge (and anything else listening) what is selected
+            function notifySelectionChanged(control) {
+                if (typeof window.pfdOnSelectionChanged === 'function') {
+                    window.pfdOnSelectionChanged(control ? control.id : null);
+                }
+            }
+
+            // Delete the selected control - used by the Delete key, the top bar
+            // button, the toolbar bin and the right-click menu.
+            function deleteSelectedControl() {
+                if (!selectedControl) {
+                    return false;
+                }
+
+                const control = selectedControl;
+                const controlId = control.id;
+
+                control.classList.remove('selected');
+                if (control.parentNode) {
+                    control.parentNode.removeChild(control);
+                }
+
+                if (controlEventHandlers[controlId]) {
+                    delete controlEventHandlers[controlId];
+                }
+                if (controlVisualLogic[controlId]) {
+                    delete controlVisualLogic[controlId];
+                }
+
+                selectedControl = null;
+                showFormProperties();
+                generateRealTimeCode();
+                return true;
+            }
+
             function selectControl(e) {
                 // Deselect previous control
                 if (selectedControl) {
@@ -2711,21 +2840,16 @@
                     selectedControl = control;
                     control.classList.add('selected');
                     updatePropertiesPanel(control);
-                    
+                    setPropertiesPanelTarget(getControlType(control) + ' - ' + control.id);
+                    notifySelectionChanged(control);
+
                     // Add resize handles after a small delay
                     setTimeout(() => {
                         addResizeHandles(control);
                     }, 10);
                 } else {
-                    selectedControl = null;
-                    // Show form properties
-                    document.getElementById('propName').value = formProperties.name;
-                    document.getElementById('propText').value = formProperties.text;
-                    document.getElementById('propSize').value = formProperties.size;
-                    document.getElementById('propLocation').value = formProperties.location;
-                    document.getElementById('propBackColor').value = formProperties.backColor;
-                    document.getElementById('propForeColor').value = formProperties.foreColor;
-                    document.getElementById('propFont').value = formProperties.font;
+                    // Clicking the form or the empty canvas shows the form properties
+                    showFormProperties();
                 }
             }
 
@@ -3270,33 +3394,153 @@
                 });
             }
 
-            // Make control draggable
+            // Make control draggable; clicking empty canvas selects the form itself
             formContainer.addEventListener('mousedown', function(e) {
                 const control = e.target.closest('.form-control');
-                if (control && !e.target.classList.contains('resize-handle')) {
+
+                if (!control) {
+                    // Empty area of the form -> show the form's own properties
+                    selectControl({target: formContainer});
+                    return;
+                }
+
+                if (e.target.classList.contains('resize-handle')) {
+                    return;
+                }
+
+                selectControl({target: control});
+
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const startLeft = parseInt(control.style.left) || 0;
+                const startTop = parseInt(control.style.top) || 0;
+
+                function onMouseMove(e) {
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    control.style.left = (startLeft + dx) + 'px';
+                    control.style.top = (startTop + dy) + 'px';
+                    updatePropertiesPanel(control);
+                    generateRealTimeCode();
+                }
+
+                function onMouseUp() {
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                }
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+
+            // The canvas header and the canvas padding also select the form
+            const canvasHeaderElement = document.querySelector('.canvas-header');
+            if (canvasHeaderElement) {
+                canvasHeaderElement.addEventListener('mousedown', function() {
+                    selectControl({target: formContainer});
+                });
+            }
+
+            const formCanvasElement = document.getElementById('formCanvas');
+            if (formCanvasElement) {
+                formCanvasElement.addEventListener('mousedown', function(e) {
+                    if (!e.target.closest('.form-control') && !e.target.closest('.form-container')) {
+                        selectControl({target: formContainer});
+                    }
+                });
+            }
+
+            // Right-click menus -------------------------------------------------
+            function hideContextMenus() {
+                if (contextMenu) {
+                    contextMenu.style.display = 'none';
+                }
+                if (canvasContextMenu) {
+                    canvasContextMenu.style.display = 'none';
+                }
+            }
+
+            function showContextMenu(menu, x, y) {
+                if (!menu) {
+                    return;
+                }
+                hideContextMenus();
+                menu.style.left = x + 'px';
+                menu.style.top = y + 'px';
+                menu.style.display = 'block';
+            }
+
+            formContainer.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                const control = e.target.closest('.form-control');
+                if (control) {
                     selectControl({target: control});
-                    
-                    const startX = e.clientX;
-                    const startY = e.clientY;
-                    const startLeft = parseInt(control.style.left) || 0;
-                    const startTop = parseInt(control.style.top) || 0;
+                    showContextMenu(contextMenu, e.clientX, e.clientY);
+                } else {
+                    selectControl({target: formContainer});
+                    showContextMenu(canvasContextMenu, e.clientX, e.clientY);
+                }
+            });
 
-                    function onMouseMove(e) {
-                        const dx = e.clientX - startX;
-                        const dy = e.clientY - startY;
-                        control.style.left = (startLeft + dx) + 'px';
-                        control.style.top = (startTop + dy) + 'px';
-                        updatePropertiesPanel(control);
-                        generateRealTimeCode();
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest || !e.target.closest('.context-menu')) {
+                    hideContextMenus();
+                }
+            });
+
+            // Delete the selected control (right-click menu entry)
+            if (deleteControlItem) {
+                deleteControlItem.addEventListener('click', function() {
+                    deleteSelectedControl();
+                    hideContextMenus();
+                });
+            }
+
+            // Clear the whole canvas (canvas right-click menu entry)
+            const clearCanvasItem = document.getElementById('clearCanvas');
+            if (clearCanvasItem) {
+                clearCanvasItem.addEventListener('click', function() {
+                    hideContextMenus();
+                    const controls = formContainer.querySelectorAll('.form-control');
+                    if (!controls.length) {
+                        return;
                     }
-
-                    function onMouseUp() {
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', onMouseUp);
+                    if (!confirm('Remove all controls from the form?')) {
+                        return;
                     }
+                    controls.forEach(control => {
+                        if (controlEventHandlers[control.id]) {
+                            delete controlEventHandlers[control.id];
+                        }
+                        if (controlVisualLogic[control.id]) {
+                            delete controlVisualLogic[control.id];
+                        }
+                    });
+                    formContainer.innerHTML = '';
+                    showFormProperties();
+                    generateRealTimeCode();
+                });
+            }
 
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', onMouseUp);
+            // Keyboard: Delete / Backspace removes the selected control
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    hideContextMenus();
+                    return;
+                }
+
+                const target = e.target || {};
+                const tagName = target.tagName ? target.tagName.toLowerCase() : '';
+                const isTyping = tagName === 'input' || tagName === 'textarea' ||
+                                 tagName === 'select' || target.isContentEditable;
+                if (isTyping || (target.closest && target.closest('.modal'))) {
+                    return;
+                }
+
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (deleteSelectedControl()) {
+                        e.preventDefault();
+                    }
                 }
             });
 
@@ -3426,6 +3670,10 @@
                 if (!selectedControl) {
                     formProperties.name = newName;
                     document.querySelector('.canvas-header').textContent = newName;
+                    // Let the Django bridge keep a new form's project name in sync
+                    if (typeof window.pfdOnFormNameChanged === 'function') {
+                        window.pfdOnFormNameChanged(newName);
+                    }
                 } else {
                     const oldName = selectedControl.id;
                     if (oldName !== newName) {
@@ -4732,14 +4980,22 @@ print("${controlId} clicked!")`;
                 formContainer.innerHTML = '';
 
                 if (formData.formStructure) {
-                    document.getElementById('propName').value = formData.formStructure.name || 'Form1';
-                    document.getElementById('propText').value = formData.formStructure.text || 'Python Form';
-                    document.getElementById('propSize').value = formData.formStructure.size || '800, 600';
-                    document.getElementById('propLocation').value = formData.formStructure.location || '100, 100';
-                    document.getElementById('propBackColor').value = formData.formStructure.backColor || '#ffffff';
-                    document.getElementById('propForeColor').value = formData.formStructure.foreColor || '#000000';
-                    document.getElementById('propFont').value = formData.formStructure.font || 'Arial';
+                    formProperties.name = formData.formStructure.name || 'Form1';
+                    formProperties.text = formData.formStructure.text || 'Python Form';
+                    formProperties.size = formData.formStructure.size || '800, 600';
+                    formProperties.location = formData.formStructure.location || '100, 100';
+                    formProperties.backColor = formData.formStructure.backColor || '#ffffff';
+                    formProperties.foreColor = formData.formStructure.foreColor || '#000000';
+                    formProperties.font = formData.formStructure.font || 'Arial';
+
+                    const header = document.querySelector('.canvas-header');
+                    if (header) {
+                        header.textContent = formProperties.name;
+                    }
                 }
+
+                // Make sure the panel shows the form again (not a stale control)
+                showFormProperties();
 
                 if (formData.controls) {
                     formData.controls.forEach(controlData => {
@@ -4919,6 +5175,13 @@ print("${controlId} clicked!")`;
             window.pfdGetProjectData = function (name) {
                 return collectFormData(name || 'form');
             };
+            window.pfdGetFormProperties = function () {
+                return Object.assign({}, formProperties);
+            };
+            window.pfdShowFormProperties = showFormProperties;
+            window.pfdSelectForm = showFormProperties;
+            window.pfdDeleteSelectedControl = deleteSelectedControl;
+            window.pfdRefreshSnippetList = loadCodeSnippetsModal;
 
             // Code preview: drag to resize + collapse/expand
             const codePreview = document.querySelector('.code-preview');

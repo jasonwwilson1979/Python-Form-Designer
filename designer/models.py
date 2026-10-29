@@ -93,6 +93,61 @@ class ProjectShare(models.Model):
         return f"{self.project.name} -> {self.user.username}"
 
 
+class CodeSnippet(models.Model):
+    """A reusable code snippet.
+
+    Snippets with ``is_public=True`` form the shared "public code library" and
+    can only be created/edited by staff (administrators).  Regular users keep
+    their own snippets in their browser cache and can copy public ones locally.
+    """
+
+    name = models.CharField(max_length=150)
+    description = models.CharField(max_length=300, blank=True)
+    code = models.TextField()
+    language = models.CharField(max_length=40, default="python")
+    is_public = models.BooleanField(
+        default=True,
+        help_text="Published to the shared public code library (admins only).",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="code_snippets",
+    )
+    copy_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["name"],
+                condition=models.Q(is_public=True),
+                name="unique_public_snippet_name",
+            )
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - repr helper
+        visibility = "public" if self.is_public else "draft"
+        return f"{self.name} ({visibility})"
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "code": self.code,
+            "language": self.language,
+            "is_public": self.is_public,
+            "created_by": self.created_by.username if self.created_by_id else "system",
+            "copy_count": self.copy_count,
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+
 class ChatMessage(models.Model):
     """Chat message either inside a project room or in the public lobby."""
 

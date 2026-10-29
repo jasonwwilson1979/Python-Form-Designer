@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import ChatMessage, FormProject, ProjectShare
+from .models import ChatMessage, CodeSnippet, FormProject, ProjectShare
 
 User = get_user_model()
 
@@ -285,6 +285,127 @@ class ChatApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+class CodeSnippetApiTests(TestCase):
+    """The public code library is curated: only admins may publish."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user("boss", password="pass12345", is_staff=True)
+        self.user = User.objects.create_user("coder", password="pass12345")
+        self.snippet = CodeSnippet.objects.create(
+            name="Center window",
+            description="Centres the window on screen",
+            code="x = (screen.winfo_screenwidth() - 800) // 2",
+            created_by=self.admin,
+        )
+
+    def test_login_required(self):
+        response = self.client.get(reverse("designer:api_snippets"))
+        self.assertEqual(response.status_code, 401)
+
+    def test_regular_user_reads_public_library(self):
+        self.client.force_login(self.user)
+        payload = self.client.get(reverse("designer:api_snippets")).json()
+        self.assertEqual(len(payload["snippets"]), 1)
+        self.assertEqual(payload["snippets"][0]["name"], "Center window")
+        self.assertFalse(payload["can_publish"])
+        self.assertFalse(payload["snippets"][0]["can_edit"])
+
+    def test_regular_user_cannot_publish(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("designer:api_snippets"),
+            data=json.dumps({"name": "Mine", "code": "print(1)"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(CodeSnippet.objects.count(), 1)
+
+    def test_admin_publishes_snippet(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("designer:api_snippets"),
+            data=json.dumps({"name": "Message box", "code": "messagebox.showinfo('hi')"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["snippet"]["is_public"])
+        self.assertTrue(response.json()["snippet"]["can_edit"])
+        self.assertEqual(CodeSnippet.objects.count(), 2)
+
+    def test_publish_requires_name_and_code(self):
+        self.client.force_login(self.admin)
+        for payload in ({"name": "", "code": "x"}, {"name": "x", "code": "  "}):
+            response = self.client.post(
+                reverse("designer:api_snippets"),
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 400)
+
+    def test_duplicate_public_name_rejected(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("designer:api_snippets"),
+            data=json.dumps({"name": "center window", "code": "x = 1"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_admin_can_edit_and_delete(self):
+        self.client.force_login(self.admin)
+        url = reverse("designer:api_snippet_detail", args=[self.snippet.id])
+        response = self.client.patch(
+            url,
+            data=json.dumps({"description": "Updated", "is_public": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.snippet.refresh_from_db()
+        self.assertEqual(self.snippet.description, "Updated")
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(CodeSnippet.objects.filter(pk=self.snippet.pk).exists())
+
+    def test_regular_user_cannot_edit_or_delete(self):
+        self.client.force_login(self.user)
+        url = reverse("designer:api_snippet_detail", args=[self.snippet.id])
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(
+            self.client.patch(
+                url, data=json.dumps({"name": "hacked"}), content_type="application/json"
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.delete(url).status_code, 403)
+
+    def test_private_draft_hidden_from_regular_users(self):
+        draft = CodeSnippet.objects.create(
+            name="Draft idea", code="pass", is_public=False, created_by=self.admin
+        )
+        self.client.force_login(self.user)
+        payload = self.client.get(reverse("designer:api_snippets")).json()
+        self.assertEqual([s["name"] for s in payload["snippets"]], ["Center window"])
+        self.assertEqual(
+            self.client.get(reverse("designer:api_snippet_detail", args=[draft.id])).status_code,
+            403,
+        )
+
+        self.client.force_login(self.admin)
+        payload = self.client.get(reverse("designer:api_snippets")).json()
+        self.assertEqual(len(payload["snippets"]), 2)
+
+    def test_copy_into_local_library_counts(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("designer:api_snippet_copy", args=[self.snippet.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["snippet"]["code"], self.snippet.code)
+        self.snippet.refresh_from_db()
+        self.assertEqual(self.snippet.copy_count, 1)
 
 
 class PageTests(TestCase):

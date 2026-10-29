@@ -62,6 +62,9 @@ def build_bootstrap(request, project=None, mode="new"):
             "duplicateTemplate": _url_with_id("designer:api_project_duplicate"),
             "chatTemplate": _url_with_id("designer:api_project_chat"),
             "lobbyChat": reverse("designer:api_lobby_chat"),
+            "snippets": reverse("designer:api_snippets"),
+            "snippetTemplate": _url_with_id("designer:api_snippet_detail"),
+            "snippetCopyTemplate": _url_with_id("designer:api_snippet_copy"),
             "importSharedTemplate": reverse(
                 "designer:api_import_shared",
                 args=["00000000-0000-0000-0000-000000000000"],

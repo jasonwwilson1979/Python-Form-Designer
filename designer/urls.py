@@ -22,4 +22,8 @@ urlpatterns = [
     path("api/projects/<int:pk>/chat/", api.api_project_chat, name="api_project_chat"),
     path("api/shared/<uuid:token>/import/", api.api_import_shared, name="api_import_shared"),
     path("api/chat/", api.api_lobby_chat, name="api_lobby_chat"),
+    # Public code library
+    path("api/snippets/", api.api_snippets, name="api_snippets"),
+    path("api/snippets/<int:pk>/", api.api_snippet_detail, name="api_snippet_detail"),
+    path("api/snippets/<int:pk>/copy/", api.api_snippet_copy, name="api_snippet_copy"),
 ]

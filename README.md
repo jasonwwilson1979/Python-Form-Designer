@@ -8,13 +8,15 @@ result to your account, share it with a link or another user, and chat about it.
 
 | Area | What you get |
 | --- | --- |
-| **Visual designer** | The original drag-and-drop designer (labels, entries, buttons, check/radio buttons, combo boxes, list boxes, frames, label frames, toplevels, menus), live Python code preview, visual logic builder, code library, resize/collapse the code preview |
+| **Visual designer** | The original drag-and-drop designer (labels, entries, buttons, check/radio buttons, combo boxes, list boxes, frames, label frames, toplevels, menus), live Python code preview, visual logic builder, resize/collapse the code preview |
+| **Editing controls** | Click a control to select it, drag to move, drag the handles to resize, **Delete key / top-bar Delete button / right-click → Delete** to remove it, right-click → Clear Canvas to empty the form, click the canvas (or its header) to edit the form's own properties |
 | **Accounts** | Sign up / log in / log out, profile page, Django admin for user management |
 | **Per-user forms** | Every form belongs to a user; the dashboard lists *my forms* and *shared with me* |
-| **Save to database** | `Save` button, `Ctrl+S`, and auto-save every 20 s while there are unsaved changes |
+| **Save to database** | Explicit **project name field in the header** (never follows the last clicked control), `Save` button, `Ctrl+S`, and auto-save every 20 s while there are unsaved changes |
 | **Save to the browser** | The `Browser` button (and the original toolbar `Save` icon) stores a draft in `localStorage`; auto-draft for brand-new forms with restore prompt |
 | **Sharing** | Public read-only link, per-user sharing with *view only* / *can edit* rights, revoke access, regenerate the link, optional "visitors may copy this form" |
 | **Chat** | Per-form chat room (drawer, unread badge, 4 s polling) plus a community lobby chat on the dashboard |
+| **Code library** | Browser-cached snippets for everyone (save/edit/insert), **plus a public code library stored in the database that only administrators can publish to**; any user can browse it and copy snippets into their own library |
 | **Copy to my account** | Anyone with a share link can clone the form into their own account (when the owner allows it) |
 | **Export** | Download the generated `.py`, or use the designer's JSON export/import |
 | **Deployment** | Docker image (Gunicorn + WhiteNoise), `docker-compose.yml`, Portainer stack, GHCR publishing workflow, SQLite or PostgreSQL |
@@ -163,7 +165,7 @@ ghcr.io/<you>/<repo>:latest
 config/                     Django project (env-driven settings, urls, wsgi/asgi)
 accounts/                   Sign up / log in / log out / profile
 designer/
-  models.py                 FormProject, ProjectShare, ChatMessage
+  models.py                 FormProject, ProjectShare, ChatMessage, CodeSnippet
   api.py                    JSON API (projects, sharing, chat, import)
   views.py                  Dashboard, designer, share page, .py download, healthz
   urls.py                   All routes
@@ -215,14 +217,41 @@ POST/PATCH/DELETE requests need the `X-CSRFToken` header (the pages include a
 | `GET`/`POST` | `/api/projects/<id>/chat/` | Read / post messages in the form room |
 | `GET`/`POST` | `/api/chat/` | Lobby chat (signed-in users) |
 | `POST` | `/api/shared/<token>/import/` | Copy a shared form into my account |
+| `GET` | `/api/snippets/` | Public code library (staff also see unpublished drafts) |
+| `POST` | `/api/snippets/` | Publish a snippet (**staff only**) |
+| `GET`/`PATCH`/`DELETE` | `/api/snippets/<id>/` | Read (public) / edit / delete (**staff only** to change) |
+| `POST` | `/api/snippets/<id>/copy/` | Copy a public snippet into the browser library (counts copies) |
 | `GET` | `/healthz/` | Health check for Docker/Portainer |
+
+## 7b. The code library
+
+There are two layers:
+
+1. **Your own snippets (browser cache).** Everything you save from the Code
+   Library dialog lives in your browser (`localStorage`) exactly as before -
+   you can add, edit, search, insert and delete them, and they are included in
+   the Backup Cache export.
+2. **The public code library (database).** Snippets stored in the `CodeSnippet`
+   table and shared with every signed-in user. Because it is curated:
+   * **Administrators** (staff users) can publish, edit, unpublish and delete
+     them - either from the Code Library dialog (the "Public code library"
+     section, which also lets you publish one of your own snippets) or from
+     `/admin/` (bulk "Publish selected snippets" / "Unpublish" actions).
+   * **Everyone else** can browse the public library and press
+     **Copy to my library** to add a snippet to their own browser cache (or
+     *Copy code* to copy the code to the clipboard). They cannot change the
+     shared copy.
+
+To make a user an administrator: `/admin/` → Users → select the user →
+tick *Staff status* (and *Superuser status* if they should manage everything).
 
 ## 8. Data, backups and admin
 
 * **SQLite** (default): `/data/db.sqlite3` inside the `formdesigner-data` volume.
   Back up with `docker run --rm -v formdesigner-data:/data -v "$PWD":/backup alpine tar czf /backup/pfd-data.tgz -C /data .`
 * **PostgreSQL**: set `DB_ENGINE=postgres` and use `pg_dump` / `pg_restore`.
-* **Admin**: `/admin/` - manage users, forms, shares and chat messages.
+* **Admin**: `/admin/` - manage users, forms, shares, chat messages and the
+  public code library (`CodeSnippet`, with bulk publish/unpublish actions).
 * The designer also keeps browser drafts in `localStorage`
   (`form_<name>` for the classic Save dialog, `pfd_draft_*` for auto-drafts) and
   can export/import forms as JSON.

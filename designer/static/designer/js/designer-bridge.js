@@ -94,17 +94,38 @@
     }
 
     function updateChip(name) {
-        const chip = document.getElementById('projectChip');
-        if (chip) chip.textContent = name || 'Unsaved form';
+        const input = document.getElementById('projectNameInput');
+        // Never blank the field - an empty name means "keep what is there".
+        if (input && name && document.activeElement !== input) {
+            input.value = name;
+        }
         const statusFile = document.getElementById('statusFile');
         if (statusFile) statusFile.textContent = (name || 'Untitled') + '.py';
         const drawerTitle = document.getElementById('chatDrawerTitle');
         if (drawerTitle) drawerTitle.textContent = name ? 'Chat: ' + name : 'Form chat';
     }
 
+    // The name the form is saved under. It lives in its own header field so it
+    // never changes just because a control was clicked.
+    function projectNameValue() {
+        const input = document.getElementById('projectNameInput');
+        return input ? input.value.trim() : '';
+    }
+
     function currentName() {
-        const input = document.getElementById('propName');
-        return (input && input.value.trim()) || state.projectName || 'Untitled form';
+        const formProps = typeof window.pfdGetFormProperties === 'function'
+            ? window.pfdGetFormProperties()
+            : null;
+        return projectNameValue() ||
+            state.projectName ||
+            (formProps && formProps.name) ||
+            'Untitled form';
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
     }
 
     function currentData() {
@@ -155,7 +176,9 @@
     function buildPayload() {
         const data = currentData();
         return {
-            name: (data && data.formStructure && data.formStructure.name) || currentName(),
+            name: projectNameValue() ||
+                (data && data.formStructure && data.formStructure.name) ||
+                'Untitled form',
             data: data || {},
             python_code: currentCode()
         };
@@ -386,6 +409,257 @@
         }
     }
 
+    /* --------------------------------------------------------- code library */
+    function openCodeLibrary() {
+        // The designer owns the modal; clicking its toolbar entry renders the
+        // local (browser) snippets list (and the listener below loads the
+        // public library).
+        const trigger = document.querySelector('.toolbar-item[title="Code Library"]');
+        if (trigger) {
+            trigger.click();
+            return;
+        }
+        const modal = document.getElementById('codeLibraryModal');
+        if (modal) modal.style.display = 'flex';
+        loadPublicSnippets();
+    }
+
+    function localSnippets() {
+        try {
+            return JSON.parse(localStorage.getItem('codeSnippets') || '[]');
+        } catch (err) {
+            return [];
+        }
+    }
+
+    function saveLocalSnippets(snippets) {
+        localStorage.setItem('codeSnippets', JSON.stringify(snippets));
+        if (typeof window.pfdRefreshSnippetList === 'function') {
+            window.pfdRefreshSnippetList();
+        }
+    }
+
+    async function loadPublicSnippets() {
+        const list = document.getElementById('publicSnippetList');
+        if (!list) return;
+        try {
+            const payload = await apiRequest(api.snippets, { method: 'GET' });
+            state.snippets = payload.snippets || [];
+            state.canPublish = !!payload.can_publish;
+            renderPublicSnippets();
+            populatePublishSource();
+            const panel = document.getElementById('publishSnippetPanel');
+            if (panel) panel.hidden = !state.canPublish;
+            const hint = document.getElementById('publicLibraryHint');
+            if (hint) {
+                hint.textContent = state.canPublish
+                    ? 'You can publish, edit and remove shared snippets (administrator)'
+                    : 'Shared snippets published by administrators - copy any of them into your own library';
+            }
+        } catch (err) {
+            list.innerHTML = '<div class="empty-state">' + escapeHtml(err.message) + '</div>';
+        }
+    }
+
+    function renderPublicSnippets() {
+        const list = document.getElementById('publicSnippetList');
+        if (!list) return;
+        const snippets = state.snippets || [];
+        list.innerHTML = '';
+
+        if (!snippets.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'No public snippets have been published yet.';
+            list.appendChild(empty);
+            return;
+        }
+
+        snippets.forEach(function (snippet) {
+            const item = document.createElement('div');
+            item.className = 'public-snippet';
+
+            const head = document.createElement('div');
+            head.className = 'public-snippet-head';
+            const title = document.createElement('strong');
+            title.textContent = snippet.name;
+            const meta = document.createElement('span');
+            meta.className = 'public-snippet-meta';
+            meta.textContent = 'by ' + snippet.created_by +
+                (snippet.is_public ? '' : ' - draft') +
+                ' - ' + snippet.copy_count + ' copy' + (snippet.copy_count === 1 ? '' : 'ies');
+            head.appendChild(title);
+            head.appendChild(meta);
+
+            const description = document.createElement('div');
+            description.className = 'public-snippet-description';
+            description.textContent = snippet.description || '';
+
+            const pre = document.createElement('pre');
+            pre.className = 'public-snippet-code';
+            pre.textContent = snippet.code;
+
+            const actions = document.createElement('div');
+            actions.className = 'public-snippet-actions';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'btn btn-primary btn-sm';
+            copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copy to my library';
+            copyBtn.addEventListener('click', function () {
+                copyPublicSnippet(snippet);
+            });
+            actions.appendChild(copyBtn);
+
+            const codeBtn = document.createElement('button');
+            codeBtn.type = 'button';
+            codeBtn.className = 'btn btn-ghost btn-sm';
+            codeBtn.innerHTML = '<i class="fas fa-clipboard"></i> Copy code';
+            codeBtn.addEventListener('click', async function () {
+                const ok = await copyText(snippet.code);
+                toast(ok ? 'Snippet code copied' : 'Could not copy the snippet', ok ? 'success' : 'error');
+            });
+            actions.appendChild(codeBtn);
+
+            if (snippet.can_edit) {
+                const editBtn = document.createElement('button');
+                editBtn.type = 'button';
+                editBtn.className = 'btn btn-ghost btn-sm';
+                editBtn.innerHTML = '<i class="fas fa-pen"></i> Edit';
+                editBtn.addEventListener('click', function () {
+                    fillPublishForm(snippet);
+                });
+                actions.appendChild(editBtn);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'btn btn-danger btn-sm';
+                removeBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+                removeBtn.title = 'Remove from the public library';
+                removeBtn.addEventListener('click', async function () {
+                    if (!window.confirm('Remove "' + snippet.name + '" from the public library?')) return;
+                    try {
+                        await apiRequest(api.snippetTemplate.replace('__ID__', snippet.id), { method: 'DELETE' });
+                        toast('Snippet removed from the public library', 'success');
+                        loadPublicSnippets();
+                    } catch (err) {
+                        toast(err.message, 'error');
+                    }
+                });
+                actions.appendChild(removeBtn);
+            }
+
+            item.appendChild(head);
+            if (description.textContent) item.appendChild(description);
+            item.appendChild(pre);
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+    }
+
+    async function copyPublicSnippet(snippet) {
+        try {
+            const payload = await apiRequest(
+                api.snippetCopyTemplate.replace('__ID__', snippet.id),
+                { method: 'POST' }
+            );
+            const fresh = payload.snippet || snippet;
+            const snippets = localSnippets();
+            const existing = snippets.findIndex(function (entry) {
+                return entry.name === fresh.name;
+            });
+            if (existing >= 0 && !window.confirm('You already have a snippet named "' + fresh.name + '". Replace it?')) {
+                return;
+            }
+            const entry = {
+                name: fresh.name,
+                description: fresh.description || '',
+                code: fresh.code
+            };
+            if (existing >= 0) {
+                snippets[existing] = entry;
+            } else {
+                snippets.push(entry);
+            }
+            saveLocalSnippets(snippets);
+            toast('"' + fresh.name + '" copied into your library', 'success');
+            loadPublicSnippets();
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+
+    function populatePublishSource() {
+        const select = document.getElementById('publishSnippetSource');
+        if (!select) return;
+        const current = select.value;
+        select.innerHTML = '<option value="">&mdash; choose one of my snippets &mdash;</option>';
+        localSnippets().forEach(function (snippet, index) {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = snippet.name;
+            select.appendChild(option);
+        });
+        select.value = current;
+    }
+
+    function fillPublishForm(snippet) {
+        const name = document.getElementById('publishSnippetName');
+        const description = document.getElementById('publishSnippetDescription');
+        const code = document.getElementById('publishSnippetCode');
+        const status = document.getElementById('publishSnippetStatus');
+        if (name) name.value = snippet.name || '';
+        if (description) description.value = snippet.description || '';
+        if (code) code.value = snippet.code || '';
+        state.editingSnippetId = snippet.id || null;
+        if (status) {
+            status.textContent = snippet.id ? 'Editing public snippet #' + snippet.id : '';
+        }
+        const panel = document.getElementById('publishSnippetPanel');
+        if (panel) panel.hidden = false;
+        if (name) name.focus();
+    }
+
+    async function publishSnippet() {
+        const name = document.getElementById('publishSnippetName');
+        const description = document.getElementById('publishSnippetDescription');
+        const code = document.getElementById('publishSnippetCode');
+        const status = document.getElementById('publishSnippetStatus');
+        if (!name || !code) return;
+
+        const payload = {
+            name: name.value.trim(),
+            description: description ? description.value.trim() : '',
+            code: code.value,
+            is_public: true
+        };
+        if (!payload.name || !payload.code.trim()) {
+            if (status) status.textContent = 'Name and code are both required.';
+            return;
+        }
+
+        try {
+            if (state.editingSnippetId) {
+                await apiRequest(api.snippetTemplate.replace('__ID__', state.editingSnippetId), {
+                    method: 'PATCH',
+                    body: payload
+                });
+            } else {
+                await apiRequest(api.snippets, { method: 'POST', body: payload });
+            }
+            if (status) status.textContent = 'Published.';
+            state.editingSnippetId = null;
+            name.value = '';
+            if (description) description.value = '';
+            code.value = '';
+            toast('Snippet published to the public library', 'success');
+            loadPublicSnippets();
+        } catch (err) {
+            if (status) status.textContent = err.message;
+            toast(err.message, 'error');
+        }
+    }
+
     /* -------------------------------------------------------- browser draft */
     function draftKey() {
         return DRAFT_PREFIX + (state.projectId || 'new');
@@ -533,6 +807,44 @@
         on('chatBtn', 'click', openChatDrawer);
         on('chatDrawerClose', 'click', closeChatDrawer);
 
+        // Code library in the top bar (right of "My forms")
+        on('codeLibraryBtn', 'click', function (event) {
+            event.preventDefault();
+            openCodeLibrary();
+        });
+
+        // Delete the selected control from the top bar
+        on('deleteControlBtn', 'click', function () {
+            if (typeof window.pfdDeleteSelectedControl === 'function') {
+                window.pfdDeleteSelectedControl();
+            }
+        });
+
+        // Public code library: publish (admins) / prefill from my snippets
+        on('publishSnippetBtn', 'click', publishSnippet);
+        const publishSource = document.getElementById('publishSnippetSource');
+        if (publishSource) {
+            publishSource.addEventListener('change', function () {
+                const index = parseInt(this.value, 10);
+                const snippets = localSnippets();
+                if (!isNaN(index) && snippets[index]) {
+                    fillPublishForm(snippets[index]);
+                    state.editingSnippetId = null;
+                    const status = document.getElementById('publishSnippetStatus');
+                    if (status) status.textContent = 'Ready to publish your local snippet.';
+                }
+            });
+        }
+
+        // Opening the library from the original toolbar icon also loads the
+        // public snippets.
+        const legacyLibraryTrigger = document.querySelector('.toolbar-item[title="Code Library"]');
+        if (legacyLibraryTrigger) {
+            legacyLibraryTrigger.addEventListener('click', function () {
+                loadPublicSnippets();
+            });
+        }
+
         document.addEventListener('keydown', function (event) {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
                 event.preventDefault();
@@ -580,7 +892,58 @@
             enterReadOnlyMode();
         }
 
+        // The project name is its own field, so it never follows the selection
+        const nameInput = document.getElementById('projectNameInput');
+        if (nameInput) {
+            nameInput.addEventListener('input', function () {
+                state.nameTouched = true;
+            });
+            nameInput.addEventListener('change', function () {
+                const statusFile = document.getElementById('statusFile');
+                if (statusFile) {
+                    statusFile.textContent = (this.value.trim() || 'Untitled') + '.py';
+                }
+            });
+            nameInput.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    nameInput.blur();
+                    saveToServer();
+                }
+            });
+        }
+
+        // Hooks called by the designer script
+        window.pfdOnSelectionChanged = function (controlId) {
+            const deleteBtn = document.getElementById('deleteControlBtn');
+            if (deleteBtn) {
+                deleteBtn.disabled = !controlId;
+            }
+        };
+
+        window.pfdOnFormNameChanged = function (formName) {
+            if (state.projectId || state.nameTouched) {
+                return;
+            }
+            const input = document.getElementById('projectNameInput');
+            if (input && document.activeElement !== input) {
+                input.value = formName;
+            }
+            updateChip(formName);
+        };
+
         updateChip(state.projectName);
+
+        // New (unsaved) form: default the project name to the form's own name
+        if (!state.projectId && !cfg.readOnly && nameInput && !nameInput.value) {
+            const formProps = typeof window.pfdGetFormProperties === 'function'
+                ? window.pfdGetFormProperties()
+                : null;
+            if (formProps && formProps.name) {
+                nameInput.value = formProps.name;
+            }
+        }
+
         wireEvents();
 
         if (state.projectId) {

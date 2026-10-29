@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
-from .models import ChatMessage, FormProject, ProjectShare
+from .models import ChatMessage, CodeSnippet, FormProject, ProjectShare
 
 User = get_user_model()
 
@@ -369,4 +369,121 @@ def api_lobby_chat(request):
     if request.method == "GET":
         return _chat_messages(request, None)
     return _chat_post(request, None)
+
+
+# ---------------------------------------------------------------------------
+# Public code library
+# ---------------------------------------------------------------------------
+def snippet_dict(snippet, user):
+    payload = snippet.as_dict()
+    payload["can_edit"] = bool(user and user.is_authenticated and user.is_staff)
+    return payload
+
+
+@require_http_methods(["GET", "POST"])
+@api
+@login_required_api
+def api_snippets(request):
+    """GET: the public code library (staff also see unpublished drafts).
+
+    POST: publish a snippet - administrators only, because the public library is
+    curated.  Regular users keep snippets in their browser cache and copy
+    public ones locally.
+    """
+    if request.method == "GET":
+        if request.user.is_staff:
+            snippets = CodeSnippet.objects.all()
+        else:
+            snippets = CodeSnippet.objects.filter(is_public=True)
+        return JsonResponse(
+            {
+                "ok": True,
+                "snippets": [snippet_dict(s, request.user) for s in snippets],
+                "can_publish": bool(request.user.is_staff),
+            }
+        )
+
+    if not request.user.is_staff:
+        raise ApiError(
+            "Only administrators can publish snippets to the public code library.", 403
+        )
+
+    payload = read_json(request)
+    name = str(payload.get("name") or "").strip()[:150]
+    code = str(payload.get("code") or "")
+    if not name:
+        raise ApiError("Give the snippet a name.")
+    if not code.strip():
+        raise ApiError("The snippet code cannot be empty.")
+    if CodeSnippet.objects.filter(name__iexact=name, is_public=True).exists():
+        raise ApiError("A public snippet with that name already exists.", 409)
+    snippet = CodeSnippet.objects.create(
+        name=name,
+        description=str(payload.get("description") or "")[:300],
+        code=code,
+        language=str(payload.get("language") or "python")[:40],
+        is_public=bool(payload.get("is_public", True)),
+        created_by=request.user,
+    )
+    return JsonResponse({"ok": True, "snippet": snippet_dict(snippet, request.user)}, status=201)
+
+
+@require_http_methods(["GET", "PATCH", "POST", "DELETE"])
+@api
+@login_required_api
+def api_snippet_detail(request, pk):
+    """Read one snippet; only administrators may change or delete it."""
+    snippet = get_object_or_404(CodeSnippet, pk=pk)
+
+    if request.method == "GET":
+        if not (snippet.is_public or request.user.is_staff):
+            raise ApiError("That snippet is not public.", 403)
+        return JsonResponse({"ok": True, "snippet": snippet_dict(snippet, request.user)})
+
+    if not request.user.is_staff:
+        raise ApiError("Only administrators can change public snippets.", 403)
+
+    if request.method == "DELETE":
+        snippet.delete()
+        return JsonResponse({"ok": True, "deleted": pk})
+
+    payload = read_json(request)
+    if "name" in payload:
+        name = str(payload.get("name") or "").strip()[:150]
+        if not name:
+            raise ApiError("The snippet name cannot be empty.")
+        if (
+            CodeSnippet.objects.filter(name__iexact=name, is_public=True)
+            .exclude(pk=snippet.pk)
+            .exists()
+        ):
+            raise ApiError("A public snippet with that name already exists.", 409)
+        snippet.name = name
+    if "description" in payload:
+        snippet.description = str(payload.get("description") or "")[:300]
+    if "code" in payload:
+        code = str(payload.get("code") or "")
+        if not code.strip():
+            raise ApiError("The snippet code cannot be empty.")
+        snippet.code = code
+    if "language" in payload:
+        snippet.language = str(payload.get("language") or "python")[:40]
+    if "is_public" in payload:
+        snippet.is_public = bool(payload.get("is_public"))
+    snippet.save()
+    return JsonResponse({"ok": True, "snippet": snippet_dict(snippet, request.user)})
+
+
+@require_http_methods(["POST"])
+@api
+@login_required_api
+def api_snippet_copy(request, pk):
+    """Count a copy of a public snippet into the caller's browser library."""
+    snippet = get_object_or_404(CodeSnippet, pk=pk)
+    if not (snippet.is_public or request.user.is_staff):
+        raise ApiError("That snippet is not public.", 403)
+    CodeSnippet.objects.filter(pk=snippet.pk).update(copy_count=snippet.copy_count + 1)
+    snippet.refresh_from_db(fields=["copy_count"])
+    return JsonResponse({"ok": True, "snippet": snippet_dict(snippet, request.user)})
+
 
