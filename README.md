@@ -225,22 +225,27 @@ POST/PATCH/DELETE requests need the `X-CSRFToken` header (the pages include a
 
 ## 7b. The code library
 
-There are two layers:
+There are two layers, shown as two tabs in the Code Library dialog (the dialog
+always fits the screen: its header, tabs and search stay visible while the lists
+scroll, and the one search box filters **both** libraries by name, description
+and code):
 
-1. **Your own snippets (browser cache).** Everything you save from the Code
-   Library dialog lives in your browser (`localStorage`) exactly as before -
-   you can add, edit, search, insert and delete them, and they are included in
-   the Backup Cache export.
-2. **The public code library (database).** Snippets stored in the `CodeSnippet`
-   table and shared with every signed-in user. Because it is curated:
+1. **Your own snippets ("My snippets" tab - browser cache).** Everything you save
+   lives in your browser (`localStorage`) exactly as before - add, edit, search,
+   insert and delete them; they are included in the Backup Cache export.
+2. **The public code library ("Public library" tab - database).** Snippets stored
+   in the `CodeSnippet` table and shared with every signed-in user. Because it is
+   curated:
    * **Administrators** (staff users) can publish, edit, unpublish and delete
-     them - either from the Code Library dialog (the "Public code library"
-     section, which also lets you publish one of your own snippets) or from
-     `/admin/` (bulk "Publish selected snippets" / "Unpublish" actions).
+     them - either from the dialog (the publish panel, which can prefill from one
+     of your own snippets) or from `/admin/` (bulk "Publish selected snippets" /
+     "Unpublish" actions).
    * **Everyone else** can browse the public library and press
      **Copy to my library** to add a snippet to their own browser cache (or
      *Copy code* to copy the code to the clipboard). They cannot change the
      shared copy.
+   * Each card shows its author, how many times it has been copied, and hides the
+     code behind a **Show code** toggle to keep the list compact.
 
 To make a user an administrator: `/admin/` → Users → select the user →
 tick *Staff status* (and *Superuser status* if they should manage everything).

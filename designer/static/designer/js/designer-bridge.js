@@ -439,6 +439,60 @@
         }
     }
 
+    /* ------------------------------------------------- library tabs/search */
+    function librarySearchTerm() {
+        const input = document.getElementById('codeLibraryModalSearch');
+        return input ? input.value.trim() : '';
+    }
+
+    function snippetMatches(snippet) {
+        const term = librarySearchTerm().toLowerCase();
+        if (!term) return true;
+        const haystack = [snippet.name, snippet.description, snippet.code]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+        return haystack.includes(term);
+    }
+
+    function setLibraryTab(name) {
+        state.libraryTab = name;
+        [['mine', 'libraryTabMine', 'libraryPaneMine'],
+         ['public', 'libraryTabPublic', 'libraryPanePublic']].forEach(function (row) {
+            const active = row[0] === name;
+            const tab = document.getElementById(row[1]);
+            const pane = document.getElementById(row[2]);
+            if (tab) {
+                tab.classList.toggle('active', active);
+                tab.setAttribute('aria-selected', active ? 'true' : 'false');
+            }
+            if (pane) {
+                pane.classList.toggle('active', active);
+            }
+        });
+        updateLibraryCounts();
+    }
+
+    function updateLibraryCounts() {
+        const term = librarySearchTerm();
+        const local = localSnippets();
+        const localMatches = local.filter(snippetMatches);
+        const publicSnippets = state.snippets || [];
+        const publicMatches = publicSnippets.filter(snippetMatches);
+
+        const mineCount = document.getElementById('libraryCountMine');
+        if (mineCount) mineCount.textContent = String(localMatches.length);
+        const publicCount = document.getElementById('libraryCountPublic');
+        if (publicCount) publicCount.textContent = String(publicMatches.length);
+
+        const footer = document.getElementById('libraryFooterHint');
+        if (footer) {
+            footer.textContent = local.length + ' in this browser - ' +
+                publicSnippets.length + ' published' +
+                (term ? ' - filtered by "' + term + '"' : '');
+        }
+    }
+
     async function loadPublicSnippets() {
         const list = document.getElementById('publicSnippetList');
         if (!list) return;
@@ -456,6 +510,15 @@
                     ? 'You can publish, edit and remove shared snippets (administrator)'
                     : 'Shared snippets published by administrators - copy any of them into your own library';
             }
+
+            if (!state.libraryInitialised) {
+                state.libraryInitialised = true;
+                // Start on the public tab when there is nothing local yet
+                const hasLocal = localSnippets().length > 0;
+                setLibraryTab(!hasLocal && (state.snippets || []).length ? 'public' : 'mine');
+            } else {
+                setLibraryTab(state.libraryTab || 'mine');
+            }
         } catch (err) {
             list.innerHTML = '<div class="empty-state">' + escapeHtml(err.message) + '</div>';
         }
@@ -464,13 +527,16 @@
     function renderPublicSnippets() {
         const list = document.getElementById('publicSnippetList');
         if (!list) return;
-        const snippets = state.snippets || [];
+        const term = librarySearchTerm();
+        const snippets = (state.snippets || []).filter(snippetMatches);
         list.innerHTML = '';
 
         if (!snippets.length) {
             const empty = document.createElement('div');
             empty.className = 'empty-state';
-            empty.textContent = 'No public snippets have been published yet.';
+            empty.textContent = term
+                ? 'No public snippets match "' + term + '".'
+                : 'No public snippets have been published yet.';
             list.appendChild(empty);
             return;
         }
@@ -495,9 +561,15 @@
             description.className = 'public-snippet-description';
             description.textContent = snippet.description || '';
 
+            const codeWrap = document.createElement('details');
+            codeWrap.className = 'public-snippet-code-wrap';
+            const codeSummary = document.createElement('summary');
+            codeSummary.textContent = 'Show code';
             const pre = document.createElement('pre');
             pre.className = 'public-snippet-code';
             pre.textContent = snippet.code;
+            codeWrap.appendChild(codeSummary);
+            codeWrap.appendChild(pre);
 
             const actions = document.createElement('div');
             actions.className = 'public-snippet-actions';
@@ -551,7 +623,7 @@
 
             item.appendChild(head);
             if (description.textContent) item.appendChild(description);
-            item.appendChild(pre);
+            item.appendChild(codeWrap);
             item.appendChild(actions);
             list.appendChild(item);
         });
@@ -822,6 +894,30 @@
 
         // Public code library: publish (admins) / prefill from my snippets
         on('publishSnippetBtn', 'click', publishSnippet);
+
+        // Library tabs + the shared search box (filters both libraries)
+        on('libraryTabMine', 'click', function () {
+            setLibraryTab('mine');
+        });
+        on('libraryTabPublic', 'click', function () {
+            setLibraryTab('public');
+        });
+
+        const librarySearchInput = document.getElementById('codeLibraryModalSearch');
+        if (librarySearchInput) {
+            librarySearchInput.addEventListener('input', function () {
+                renderPublicSnippets();
+                updateLibraryCounts();
+            });
+        }
+
+        // Keep the tab counters in step with the local list rendered by the designer
+        const localList = document.getElementById('codeLibraryModalList');
+        if (localList && window.MutationObserver) {
+            new MutationObserver(function () {
+                updateLibraryCounts();
+            }).observe(localList, { childList: true, subtree: true });
+        }
         const publishSource = document.getElementById('publishSnippetSource');
         if (publishSource) {
             publishSource.addEventListener('change', function () {

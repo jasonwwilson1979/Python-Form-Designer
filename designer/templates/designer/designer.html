@@ -1433,43 +1433,52 @@
 
     <!-- Code Library Modal -->
     <div class="modal" id="codeLibraryModal" style="display: none;">
-        <div class="modal-content" style="width: 900px; max-width: 95%;">
+        <div class="modal-content library-modal">
             <div class="modal-header">
                 <div class="modal-title"><i class="fas fa-code"></i> Code Library</div>
                 <button class="close-modal" id="closeCodeLibrary">&times;</button>
             </div>
-            <div class="modal-body">
-                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
-                    <div style="flex: 1;">
-                        <input type="text" class="property-input" id="codeLibraryModalName" placeholder="Snippet Name">
-                    </div>
-                    <div style="flex: 2;">
-                        <input type="text" class="property-input" id="codeLibraryModalDescription" placeholder="Description (optional)">
-                    </div>
-                </div>
-                <div class="property-group">
-                    <label class="property-label">Code</label>
-                    <textarea class="property-input" id="codeLibraryModalSnippet" rows="6" placeholder="Enter your Python code snippet here..." style="font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; resize: vertical;"></textarea>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <button class="btn btn-primary" id="addCodeSnippetModalBtn"><i class="fas fa-plus"></i> Add Snippet</button>
-                </div>
-                <div class="property-group">
-                    <label class="property-label">Search Snippets</label>
-                    <input type="text" class="property-input" id="codeLibraryModalSearch" placeholder="Search by name or description..." style="margin-bottom: 10px;">
-                </div>
-                <div class="property-group">
-                    <label class="property-label">Saved Code Snippets</label>
-                    <div id="codeLibraryModalList" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background-color: #f8f9fa;">
-                        <div id="codeLibraryModalEmptyMessage" style="text-align: center; padding: 20px; color: #999;">No code snippets saved yet</div>
-                    </div>
-                </div>
 
-                <div class="property-group">
-                    <label class="property-label">
-                        <i class="fas fa-globe"></i> Public code library
+            <div class="library-bar">
+                <div class="library-tabs" role="tablist">
+                    <button type="button" class="library-tab active" id="libraryTabMine" data-pane="mine" role="tab" aria-selected="true">
+                        <i class="fas fa-hdd"></i> My snippets
+                        <span class="library-count" id="libraryCountMine">0</span>
+                    </button>
+                    <button type="button" class="library-tab" id="libraryTabPublic" data-pane="public" role="tab" aria-selected="false">
+                        <i class="fas fa-globe"></i> Public library
+                        <span class="library-count" id="libraryCountPublic">0</span>
+                    </button>
+                </div>
+                <div class="library-search">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="codeLibraryModalSearch" placeholder="Search both libraries by name or description...">
+                </div>
+            </div>
+
+            <div class="modal-body library-body">
+                <section class="library-pane active" id="libraryPaneMine" role="tabpanel" aria-labelledby="libraryTabMine">
+                    <div class="library-editor">
+                        <div class="library-editor-row">
+                            <input type="text" class="property-input" id="codeLibraryModalName" placeholder="Snippet name">
+                            <input type="text" class="property-input" id="codeLibraryModalDescription" placeholder="Description (optional)">
+                        </div>
+                        <textarea class="property-input" id="codeLibraryModalSnippet" rows="4" placeholder="Enter your Python code snippet here..."></textarea>
+                        <div class="library-editor-actions">
+                            <button class="btn btn-primary btn-sm" id="addCodeSnippetModalBtn"><i class="fas fa-plus"></i> Add snippet</button>
+                            <span class="library-hint">Saved in this browser (localStorage)</span>
+                        </div>
+                    </div>
+
+                    <div class="library-list" id="codeLibraryModalList">
+                        <div id="codeLibraryModalEmptyMessage" class="empty-state">No code snippets saved yet</div>
+                    </div>
+                </section>
+
+                <section class="library-pane" id="libraryPanePublic" role="tabpanel" aria-labelledby="libraryTabPublic">
+                    <div class="library-public-head">
                         <span class="library-hint" id="publicLibraryHint">Shared snippets published by administrators</span>
-                    </label>
+                    </div>
 
                     <div id="publishSnippetPanel" class="publish-panel" hidden>
                         <select class="property-input" id="publishSnippetSource" title="Fill the form from one of your own snippets">
@@ -1486,12 +1495,13 @@
                         </div>
                     </div>
 
-                    <div id="publicSnippetList" class="public-snippet-list">
+                    <div class="library-list" id="publicSnippetList">
                         <div class="empty-state">Loading the public code library...</div>
                     </div>
-                </div>
+                </section>
             </div>
             <div class="modal-footer">
+                <span class="library-footer-hint" id="libraryFooterHint"></span>
                 <button class="btn btn-secondary" id="closeCodeLibraryBtn">Close</button>
             </div>
         </div>
