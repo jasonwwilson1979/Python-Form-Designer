@@ -1026,7 +1026,7 @@
                             <i class="fas fa-object-group"></i> LabelFrame
                         </div>
                         <div class="component-item" draggable="true" data-type="toolwindow">
-                            <i class="fas fa-window-restore"></i> Toplevel
+                            <i class="fas fa-window-restore"></i> ToolWindow
                         </div>
                     </div>
 
@@ -2824,15 +2824,15 @@
                                     // A Combobox has no -text option; set() is the way
                                     pyCode += indent + "self." + target + ".set('" + textMatch[1] + "')\n";
                                 } else if (actionTypeAttr === 'hide' || config === "state='hidden'") {
-                                    if (targetType === 'Toplevel') {
-                                        // A Toplevel is a real window, so hide the window
+                                    if (targetType === 'ToolWindow') {
+                                        // A tool window is a real Tk Toplevel, so hide the window
                                         pyCode += indent + "self." + target + ".withdraw()\n";
                                     } else {
                                         // Classic Tk widgets have no hidden state - unplace them
                                         pyCode += indent + "self." + target + ".place_forget()\n";
                                     }
                                 } else if (actionTypeAttr === 'show' && element) {
-                                    if (targetType === 'Toplevel') {
+                                    if (targetType === 'ToolWindow') {
                                         // ...bring the window back, in front of the main one
                                         pyCode += indent + "self." + target + ".deiconify()\n";
                                         pyCode += indent + "self." + target + ".lift()\n";
@@ -3344,7 +3344,7 @@
                     case 'panel': return 'Frame';
                     case 'groupbox': return 'LabelFrame';
                     case 'menustrip': return 'Menu';
-                    case 'toolwindow': return 'Toplevel';
+                    case 'toolwindow': return 'ToolWindow';
                     default: return 'Frame';
                 }
             }
@@ -3728,7 +3728,7 @@
                                 });
                             }
                         }
-                    } else if (controlType === 'Toplevel') {
+                    } else if (controlType === 'ToolWindow') {
                         pyCode += "        self." + controlId + " = tk.Toplevel(self)\n";
                         pyCode += "        self." + controlId + ".title('Tool Window')\n";
                         pyCode += "        self." + controlId + ".geometry('" + width + "x" + height + "+" + left + "+" + top + "')\n";
@@ -3737,6 +3737,11 @@
                         if (bgColor && bgColor !== '#ffffff' && bgColor !== '#f0f0f0') {
                             pyCode += "        self." + controlId + ".configure(bg='" + bgColor + "')\n";
                         }
+                        // Clicking the window's X hides it instead of closing it, so the
+                        // Show action can bring it straight back.
+                        pyCode += "        self." + controlId + ".protocol('WM_DELETE_WINDOW', self." + controlId + "_on_close)\n";
+                        eventHandlerCode += "\n    def " + controlId + "_on_close(self):\n";
+                        eventHandlerCode += "        self." + controlId + ".withdraw()\n";
                     }
 
                     // Collect event handlers for later (after all controls are created)
@@ -3746,9 +3751,9 @@
                         pyCode += "        self." + controlId + ".select()\n";
                     }
                     if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu') {
-                        if (controlType === 'Toplevel') {
-                            // A Toplevel is a real window, not a placed widget, so it has
-                            // to be hidden (the Show action can bring it back)
+                        if (controlType === 'ToolWindow') {
+                            // A tool window is a real Tk Toplevel, not a placed widget, so
+                            // it has to be hidden (the Show action can bring it back)
                             pyCode += "        self." + controlId + ".withdraw()\n";
                         } else {
                             // Not placed, so it does not show up (the Show action can place it)

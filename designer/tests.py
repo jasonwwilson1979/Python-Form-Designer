@@ -632,6 +632,28 @@ class PageTests(TestCase):
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
 
+    def test_tool_window_is_called_toolwindow_and_its_x_hides_it(self):
+        """The palette names the control ToolWindow (it is still a tk.Toplevel in the
+        generated code), and clicking the window's X hides it instead of closing it."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("case 'toolwindow': return 'ToolWindow';", template)
+        self.assertIn('<i class="fas fa-window-restore"></i> ToolWindow', template)
+        self.assertNotIn("</i> Toplevel", template)
+        # the X is bound to a handler that withdraws the window
+        self.assertIn(
+            r""".protocol('WM_DELETE_WINDOW', self." + controlId + "_on_close)""", template
+        )
+        self.assertIn(
+            r'eventHandlerCode += "\n    def " + controlId + "_on_close(self):\n";', template
+        )
+        self.assertIn(
+            r'eventHandlerCode += "        self." + controlId + ".withdraw()\n";', template
+        )
+        # it is still a real Tk Toplevel in the generated code
+        self.assertIn(r'= tk.Toplevel(self)\n";', template)
+
     def test_tool_window_visibility_uses_the_window_api(self):
         """A Toplevel is a real window, so Visible has to withdraw/deiconify it;
         place_forget() would do nothing at all to it."""
