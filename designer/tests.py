@@ -482,6 +482,10 @@ class PageTests(TestCase):
         for name in ("favicon.svg", "favicon.ico", "favicon-32.png", "apple-touch-icon.png"):
             path = settings.BASE_DIR / "designer" / "static" / "designer" / "img" / name
             self.assertTrue(path.exists(), f"{name} is missing from the static files")
+        # /favicon.ico is requested directly by browsers - it must not 404
+        redirect = self.client.get("/favicon.ico")
+        self.assertEqual(redirect.status_code, 302)
+        self.assertIn("designer/img/favicon.ico", redirect["Location"])
 
     def test_snippet_picker_lists_both_libraries(self):
         """Insert Code Snippet (Add Script) shows the local and the published
@@ -652,9 +656,13 @@ class PageTests(TestCase):
         template = (
             settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
         ).read_text(encoding="utf-8")
-        # the rule list comes before the controls that add to it
+        # the rule list comes before the controls that add to it, and each add button
+        # sits at the end of the row it belongs to
         self.assertLess(template.index('id="logicPreview"'), template.index('id="addConditionBtn"'))
-        self.assertLess(template.index('id="addConditionBtn"'), template.index('id="addActionBtn"'))
+        self.assertLess(template.index('id="conditionValueBool"'), template.index('id="addConditionBtn"'))
+        self.assertLess(template.index('id="addConditionBtn"'), template.index('Add an action'))
+        self.assertLess(template.index('id="actionValueBool"'), template.index('id="addActionBtn"'))
+        self.assertLess(template.index('id="addActionBtn"'), template.index('Scripts and branches'))
         # join selector and the value-list operator
         self.assertIn('id="conditionJoin"', template)
         self.assertIn('<option value="and">AND with the rule above</option>', template)
