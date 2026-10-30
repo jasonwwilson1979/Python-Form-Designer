@@ -649,6 +649,17 @@ class PageTests(TestCase):
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
 
+    def test_else_entry_can_be_deleted_and_dragged(self):
+        """The else entry used to be inserted without its delete/drag wiring, so its X
+        did nothing.  Every entry now goes through wireLogicEntry()."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function wireLogicEntry(entryId)", template)
+        # called once by the else button and once by the generic entry builder
+        self.assertEqual(template.count("wireLogicEntry(entryId);"), 2)
+        self.assertIn("delete-logic-entry", template)
+
     def test_logic_builder_rules_first_with_joins_and_value_lists(self):
         """The rules are listed first and the controls that add the next step sit at
         the end of them, a condition can be joined with AND/OR, and one condition can

@@ -5872,7 +5872,46 @@ print("${controlId} clicked!")`;
                     </div>
                 </div>`;
                 previewDiv.insertAdjacentHTML('beforeend', entryHtml);
+                wireLogicEntry(entryId);
+                previewDiv.scrollTop = previewDiv.scrollHeight;
             });
+
+            // Every entry needs its own buttons and drag handlers, and entries added
+            // later (an else, for instance) must be wired exactly like the first one.
+            function wireLogicEntry(entryId) {
+                const deleteBtn = document.querySelector(`[data-id="${entryId}"].delete-logic-entry`);
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', function() {
+                        const entryElement = document.getElementById(entryId);
+                        if (entryElement) {
+                            entryElement.remove();
+                            const remainingEntries = document.querySelectorAll('#logicPreview .logic-entry');
+                            if (remainingEntries.length === 0) {
+                                eventScript.readOnly = false;
+                                eventScript.title = "";
+                                eventScript.style.backgroundColor = "";
+                                eventScript.style.cursor = "";
+                            }
+                        }
+                    });
+                }
+
+                const editBtn = document.querySelector(`[data-id="${entryId}"].edit-logic-entry`);
+                if (editBtn) {
+                    editBtn.addEventListener('click', function() {
+                        editLogicEntry(entryId);
+                    });
+                }
+
+                const entryElement = document.getElementById(entryId);
+                if (entryElement) {
+                    entryElement.addEventListener('dragstart', handleDragStart);
+                    entryElement.addEventListener('dragover', handleDragOver);
+                    entryElement.addEventListener('drop', handleDrop);
+                    entryElement.addEventListener('dragenter', handleDragEnter);
+                    entryElement.addEventListener('dragleave', handleDragLeave);
+                }
+            }
 
             // The preview starts with a placeholder - drop it once real entries exist
             function clearLogicPreviewPlaceholder() {
@@ -5992,38 +6031,7 @@ print("${controlId} clicked!")`;
 
                 previewDiv.insertAdjacentHTML('beforeend', entryHtml);
 
-                const deleteBtn = document.querySelector(`[data-id="${entryId}"].delete-logic-entry`);
-                if (deleteBtn) {
-                    deleteBtn.addEventListener('click', function() {
-                        const entryElement = document.getElementById(entryId);
-                        if (entryElement) {
-                            entryElement.remove();
-                            const remainingEntries = document.querySelectorAll('#logicPreview .logic-entry');
-                            if (remainingEntries.length === 0) {
-                                eventScript.readOnly = false;
-                                eventScript.title = "";
-                                eventScript.style.backgroundColor = "";
-                                eventScript.style.cursor = "";
-                            }
-                        }
-                    });
-                }
-
-                const editBtn = document.querySelector(`[data-id="${entryId}"].edit-logic-entry`);
-                if (editBtn) {
-                    editBtn.addEventListener('click', function() {
-                        editLogicEntry(entryId);
-                    });
-                }
-
-                const entryElement = document.getElementById(entryId);
-                if (entryElement) {
-                    entryElement.addEventListener('dragstart', handleDragStart);
-                    entryElement.addEventListener('dragover', handleDragOver);
-                    entryElement.addEventListener('drop', handleDrop);
-                    entryElement.addEventListener('dragenter', handleDragEnter);
-                    entryElement.addEventListener('dragleave', handleDragLeave);
-                }
+                wireLogicEntry(entryId);
 
                 previewDiv.scrollTop = previewDiv.scrollHeight;
             }
