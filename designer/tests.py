@@ -599,6 +599,26 @@ class PageTests(TestCase):
         ):
             self.assertIn(expected, template)
 
+    def test_designer_paste_front_radio_defaults_drag_guard_and_logic_refresh(self):
+        """Pasted controls come to the front, radios have an explicit starting
+        value, a lost mouseup cannot leave a drag running, and the Logic Builder
+        reloads when the event type or menu item changes."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        for expected in (
+            "StringVar(value=",
+            "radioGroupInitial",
+            "finishDrag",
+            "finishResize",
+            "e.buttons === 0",
+            "function openLogicBuilderFor(",
+            "keepTargetSelection",
+            "preferredEvent",
+            "A pasted control comes to the front",
+        ):
+            self.assertIn(expected, template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)

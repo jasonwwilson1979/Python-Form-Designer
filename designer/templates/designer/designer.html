@@ -2531,7 +2531,12 @@
                         if (!controlEventHandlers[storageControlId]) {
                             controlEventHandlers[storageControlId] = {};
                         }
-                        controlEventHandlers[storageControlId][storageEventType] = script;
+                        if (script.trim() === '') {
+                            // Empty script -> no handler (an empty method would not run)
+                            delete controlEventHandlers[storageControlId][storageEventType];
+                        } else {
+                            controlEventHandlers[storageControlId][storageEventType] = script;
+                        }
                     } else {
                         // Save visual logic
                         const logicPreview = document.getElementById('logicPreview').innerHTML;
@@ -3420,6 +3425,14 @@
                 let eventHandlerCode = "";
                 // One variable per radio group, emitted before its first radio
                 const radioGroupVariablesEmitted = {};
+                // Which radio starts selected in each group ('' = none)
+                const radioGroupInitial = {};
+                sortedControls.forEach(function(control) {
+                    if (getControlType(control) === 'Radiobutton' &&
+                        control.getAttribute('data-selected') === 'true') {
+                        radioGroupInitial[radioGroupKey(control)] = control.id;
+                    }
+                });
                 
                 sortedControls.forEach(function(control, index) {
                     const controlId = control.id;
@@ -3506,7 +3519,10 @@
                         const groupVar = radioGroupVariable(control);
                         if (!radioGroupVariablesEmitted[groupVar]) {
                             radioGroupVariablesEmitted[groupVar] = true;
-                            pyCode += "        " + groupVar + " = tk.StringVar()\n";
+                            // The variable's starting value is the radio that is
+                            // "selected at start" - empty means none of them is on.
+                            const initial = radioGroupInitial[radioGroupKey(control)] || '';
+                            pyCode += "        " + groupVar + " = tk.StringVar(value='" + initial + "')\n";
                         }
                         pyCode += "        self." + controlId + " = tk.Radiobutton(" + master + ", text='" + text.replace(/'/g, "\\'") + "', variable=" + groupVar + ", value='" + controlId + "'";
                         const computedStyle = document.defaultView.getComputedStyle(control);
@@ -3645,9 +3661,8 @@
 
                     // Collect event handlers for later (after all controls are created)
                     // Visible / Enabled / Selected from the properties panel
-                    if (control.getAttribute('data-selected') === 'true' &&
-                        (controlType === 'Checkbutton' || controlType === 'Radiobutton')) {
-                        // Starts ticked (for a radio this also picks its group value)
+                    if (control.getAttribute('data-selected') === 'true' && controlType === 'Checkbutton') {
+                        // Starts ticked (radios get their group's starting value instead)
                         pyCode += "        self." + controlId + ".select()\n";
                     }
                     if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu' &&
@@ -3778,6 +3793,11 @@
                     const startTop = parseInt(document.defaultView.getComputedStyle(control).top);
 
                     function onMouseMove(e) {
+                        // The button was released outside the window - stop resizing
+                        if (e.buttons === 0) {
+                            finishResize();
+                            return;
+                        }
                         const dx = e.clientX - startX;
                         const dy = e.clientY - startY;
 
@@ -3829,13 +3849,19 @@
                         generateRealTimeCode();
                     }
 
-                    function onMouseUp() {
+                    function finishResize() {
                         document.removeEventListener('mousemove', onMouseMove);
                         document.removeEventListener('mouseup', onMouseUp);
+                        window.removeEventListener('blur', finishResize);
+                    }
+
+                    function onMouseUp() {
+                        finishResize();
                     }
 
                     document.addEventListener('mousemove', onMouseMove);
                     document.addEventListener('mouseup', onMouseUp);
+                    window.addEventListener('blur', finishResize);
 
                     e.preventDefault();
                 });
@@ -3878,6 +3904,11 @@
                 let dragMoved = false;
 
                 function onMouseMove(e) {
+                    // The button was released outside the window - stop following
+                    if (e.buttons === 0) {
+                        finishDrag();
+                        return;
+                    }
                     const dx = e.clientX - startX;
                     const dy = e.clientY - startY;
                     dragMoved = dragMoved || Math.abs(dx) > 2 || Math.abs(dy) > 2;
@@ -3889,9 +3920,14 @@
                     generateRealTimeCode();
                 }
 
-                function onMouseUp(e) {
+                function finishDrag() {
                     document.removeEventListener('mousemove', onMouseMove);
                     document.removeEventListener('mouseup', onMouseUp);
+                    window.removeEventListener('blur', finishDrag);
+                }
+
+                function onMouseUp(e) {
+                    finishDrag();
 
                     // Only a real drag may move the control in or out of a container -
                     // a plain click must leave the nesting alone, and a multi-selection
@@ -3912,6 +3948,7 @@
 
                 document.addEventListener('mousemove', onMouseMove);
                 document.addEventListener('mouseup', onMouseUp);
+                window.addEventListener('blur', finishDrag);
             });
 
             // The canvas header and the canvas padding also select the form
@@ -4182,8 +4219,12 @@
                     const storedParent = snapshot.parentId
                         ? document.getElementById(snapshot.parentId) : null;
                     const parent = storedParent || formContainer;
-                    return instantiateSnapshot(snapshot, parent, 20, 20);
+                    const element = instantiateSnapshot(snapshot, parent, 20, 20);
+                    // A pasted control comes to the front of its container
+                    parent.appendChild(element);
+                    return element;
                 });
+                restackControls();
                 setSelection(created, created.length ? created[created.length - 1] : null);
                 generateRealTimeCode();
                 return true;
@@ -4677,22 +4718,41 @@
             // Open Logic Builder on double-click
             formContainer.addEventListener('dblclick', function(e) {
                 const control = e.target.closest('.form-control');
+                if (!control) {
+                    return;
+                }
+                if (selectedControl !== control) {
+                    selectControl({target: control});
+                }
+                // A fresh open starts from the menu item dropdown's placeholder, so
+                // the builder can jump to the item that already has logic.
+                const menuItemSelector = document.getElementById('menuItemSelector');
+                if (menuItemSelector) {
+                    menuItemSelector.value = '';
+                }
+                openLogicBuilderFor(control);
+            });
+
+            // Show the Logic Builder for a control.  Called on double-click and again
+            // whenever the event type or menu item changes, so the preview (and what
+            // gets saved) always belongs to the item that is currently selected.
+            function openLogicBuilderFor(control, keepTargetSelection, preferredEvent) {
                 if (control) {
-                    if (selectedControl !== control) {
-                        selectControl({target: control});
-                    }
-                    
                     const controlId = control.id;
                     const controlType = getControlType(control);
                     logicBuilderControlName.textContent = `${controlType} - ${controlId}`;
                     
                     document.getElementById('logicPreview').innerHTML = 'No conditions defined yet';
                     updateEventSelectorOptions(control);
+                    if (preferredEvent) {
+                        // The reload rebuilt the list - put the user's choice back
+                        eventSelector.value = preferredEvent;
+                    }
 
                     // A Menu keeps its logic per menu item, so reopen on the first item
                     // that already has logic - otherwise the Logic Builder looks as if
                     // the logic had never been saved.
-                    if (controlType === 'Menu') {
+                    if (controlType === 'Menu' && !keepTargetSelection) {
                         const menuItemSelector = document.getElementById('menuItemSelector');
                         if (menuItemSelector) {
                             (control.getAttribute('data-menu-items') || '').split('\n').forEach(function(line) {
@@ -4711,8 +4771,11 @@
                     }
                     
                     // A Menu attaches its logic to a menu item, so it opens on
-                    // "Menu Item Clicked"; every other control opens on Click.
-                    let defaultEventType = controlType === 'Menu' ? 'menu_click' : 'click';
+                    // "Menu Item Clicked"; every other control opens on Click.  A
+                    // reload keeps whatever the user has chosen.
+                    let defaultEventType = keepTargetSelection
+                        ? eventSelector.value
+                        : (controlType === 'Menu' ? 'menu_click' : 'click');
                     let lookupControlId = controlId;
                     // Where the script is stored for the looked-up target (a menu item
                     // always keeps its logic under 'click').
@@ -4734,6 +4797,12 @@
                                 }
                             }
                         }
+                    } else if (keepTargetSelection) {
+                        // Reloading after a change: look up exactly what is selected,
+                        // never another event type that happens to have logic.
+                        lookupEventType = eventSelector.value;
+                        foundExistingLogic = !!(controlEventHandlers[controlId] &&
+                            controlEventHandlers[controlId][lookupEventType]);
                     } else {
                         if (controlEventHandlers[controlId]) {
                             for (const eventType in controlEventHandlers[controlId]) {
@@ -4829,13 +4898,19 @@
                             }
                         }
                     } else {
-                        scriptTabBtn.click();
-                        eventScript.value = `# Add your Python script here
+                        // No stored logic for this target.  A fresh open shows the
+                        // starter script; a reload only clears the previous one.
+                        if (keepTargetSelection) {
+                            eventScript.value = '';
+                        } else {
+                            scriptTabBtn.click();
+                            eventScript.value = `# Add your Python script here
 # Available variables: self, event
 # Example: messagebox.showinfo("Info", "Button clicked!")
 
 # Add your event logic here
 print("${controlId} clicked!")`;
+                        }
                         
                         eventScript.readOnly = false;
                         eventScript.title = "";
@@ -4855,6 +4930,22 @@ print("${controlId} clicked!")`;
                     }
                     
                     logicBuilderModal.style.display = 'flex';
+                }
+            }
+
+            // Changing the event type or the menu item reloads the preview for the
+            // newly chosen target instead of leaving the previous logic on screen.
+            ['eventSelector', 'menuItemSelector'].forEach(function(id) {
+                const select = document.getElementById(id);
+                if (select) {
+                    select.addEventListener('change', function() {
+                        if (!selectedControl || logicBuilderModal.style.display !== 'flex') {
+                            return;
+                        }
+                        // Rebuild for the new target but keep the chosen event type and
+                        // menu item (openLogicBuilderFor leaves them alone).
+                        openLogicBuilderFor(selectedControl, true, eventSelector.value);
+                    });
                 }
             });
 
@@ -4905,6 +4996,8 @@ print("${controlId} clicked!")`;
                     return;
                 }
 
+                // Keep whatever the user had chosen, as long as it is still an item
+                const previous = menuItemSelector.value;
                 menuItemSelector.innerHTML = '<option value="">Select a menu item</option>';
 
                 const storedMenuItems = control.getAttribute('data-menu-items');
@@ -4926,6 +5019,10 @@ print("${controlId} clicked!")`;
                             }
                         });
                     }
+                }
+
+                if (previous && menuItemSelector.querySelector(`option[value="${previous}"]`)) {
+                    menuItemSelector.value = previous;
                 }
             }
 
