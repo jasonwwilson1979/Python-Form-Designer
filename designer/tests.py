@@ -470,6 +470,19 @@ class PageTests(TestCase):
         self.assertContains(response, "code-library.js?v=")
         self.assertContains(response, "app.css?v=")
 
+    def test_pages_use_the_python_form_favicon(self):
+        """The browser tab shows the python-in-a-form mark - on the app pages and in
+        the Django admin, which ships no favicon of its own."""
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("designer:dashboard"))
+        self.assertContains(response, "designer/img/favicon.svg?v=")
+        self.assertContains(response, "designer/img/favicon.ico?v=")
+        admin_response = self.client.get("/admin/", follow=True)
+        self.assertContains(admin_response, "designer/img/favicon.svg")
+        for name in ("favicon.svg", "favicon.ico", "favicon-32.png", "apple-touch-icon.png"):
+            path = settings.BASE_DIR / "designer" / "static" / "designer" / "img" / name
+            self.assertTrue(path.exists(), f"{name} is missing from the static files")
+
     def test_snippet_picker_lists_both_libraries(self):
         """Insert Code Snippet (Add Script) shows the local and the published
         snippets in one dialog, so nothing has to be fetched or tab-switched."""
@@ -631,6 +644,30 @@ class PageTests(TestCase):
         self.assertIn('class="component-item" draggable="true"', template)
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
+
+    def test_logic_builder_rules_first_with_joins_and_value_lists(self):
+        """The rules are listed first and the controls that add the next step sit at
+        the end of them, a condition can be joined with AND/OR, and one condition can
+        match any of several values ("is one of 1, 3")."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        # the rule list comes before the controls that add to it
+        self.assertLess(template.index('id="logicPreview"'), template.index('id="addConditionBtn"'))
+        self.assertLess(template.index('id="addConditionBtn"'), template.index('id="addActionBtn"'))
+        # join selector and the value-list operator
+        self.assertIn('id="conditionJoin"', template)
+        self.assertIn('<option value="and">AND with the rule above</option>', template)
+        self.assertIn('<option value="or">OR with the rule above</option>', template)
+        self.assertIn('<option value="oneof">Is one of (comma separated)</option>', template)
+        # the builder stores the parts, and the generator folds AND/OR into one test
+        self.assertIn("data-join=", template)
+        self.assertIn("data-values=", template)
+        self.assertIn("joinsPrevious", template)
+        self.assertIn("lastCondition", template)
+        # "is one of" cannot be read back out of the label, so the tuple comes from
+        # the entry's data-values
+        self.assertIn('valueList = attrValues ? attrValues.split', template)
 
     def test_tool_window_is_called_toolwindow_and_its_x_hides_it(self):
         """The palette names the control ToolWindow (it is still a tk.Toplevel in the

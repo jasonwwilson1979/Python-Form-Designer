@@ -1252,9 +1252,27 @@
 
                         <!-- Visual Logic Tab -->
                         <div id="visualTab" class="tab-pane">
+                            <!-- The rules first, then the controls that add the next step:
+                                 the builder sits at the end of the control logic, which is
+                                 where you look once you have read the last rule. -->
                             <div class="property-group">
-                                <label class="property-label">Condition</label>
+                                <label class="property-label">Control logic</label>
+                                <div id="logicPreview" style="background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; max-height: 240px; overflow-y: auto; white-space: pre-wrap;">
+                                    No conditions defined yet
+                                </div>
+                                <div style="font-size: 12px; color: #7f8c8d; margin-top: 6px;">
+                                    Rules run from top to bottom. Add the next step with the controls below.
+                                </div>
+                            </div>
+
+                            <div class="property-group">
+                                <label class="property-label">Add a condition</label>
                                 <div style="display: flex; gap: 10px; align-items: center;">
+                                    <select class="property-input" id="conditionJoin" style="flex: 1;" title="How this condition combines with the rule above">
+                                        <option value="new">New rule (else if)</option>
+                                        <option value="and">AND with the rule above</option>
+                                        <option value="or">OR with the rule above</option>
+                                    </select>
                                     <select class="property-input" id="conditionControl" style="flex: 1;">
                                         <option value="">Select a control</option>
                                     </select>
@@ -1269,8 +1287,9 @@
                                         <option value="ge">Greater or Equal</option>
                                         <option value="le">Less or Equal</option>
                                         <option value="contains">Contains</option>
+                                        <option value="oneof">Is one of (comma separated)</option>
                                     </select>
-                                    <input type="text" class="property-input" id="conditionValue" placeholder="Value" style="flex: 1;">
+                                    <input type="text" class="property-input" id="conditionValue" placeholder="Value (or 1, 3, 5)" style="flex: 1;">
                                     <select class="property-input" id="conditionValueBool" style="flex: 1; display: none;">
                                         <option value="">Select value</option>
                                         <option value="True">True</option>
@@ -1298,17 +1317,11 @@
                             </div>
                             
                             <div class="property-group">
+                                <label class="property-label">Add to the logic</label>
                                 <button class="btn btn-secondary" id="addConditionBtn">Add Condition</button>
                                 <button class="btn btn-secondary" id="addActionBtn">Add Action</button>
                                 <button class="btn btn-secondary" id="addScriptBtn">Add Script</button>
                                 <button class="btn btn-secondary" id="addElseBtn">Add Else Action</button>
-                            </div>
-                            
-                            <div class="property-group">
-                                <label class="property-label">Logic Preview</label>
-                                <div id="logicPreview" style="background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; max-height: 150px; overflow-y: auto; white-space: pre-wrap;">
-                                    No conditions defined yet
-                                </div>
                             </div>
                         </div>
                         
@@ -2617,6 +2630,8 @@
                 let ifBlockDepth = 0;
                 let conditionDepth = -1;
                 let inConditionChain = false;
+                // The condition line written last, so an "and"/"or" rule can fold into it
+                let lastCondition = null;
                 // Indent of the block that has not received a statement yet - a
                 // block that stays empty gets a "pass" so the code still runs.
                 let pendingBodyIndent = null;
@@ -2642,18 +2657,46 @@
                             ifBlockDepth++;
                             conditionDepth = ifBlockDepth - 1;
                             inConditionChain = false;
+                            // An "and"/"or" rule must not fold into a branch that the
+                            // else has already closed
+                            lastCondition = null;
                             pendingBodyIndent = "    ".repeat(ifBlockDepth);
                         }
                     } else if (conditionSpan) {
-                        // This is a condition
+                        // This is a condition.  The builder stores the parts as data
+                        // attributes, which is the reliable source - "is one of" cannot be
+                        // read back out of the label - so only fall back to the label text
+                        // for logic saved before those attributes existed.
                         const conditionText = conditionSpan.textContent;
-                        // Extract condition
-                        const conditionMatch = conditionText.match(/IF \(([^(]+)\.([^ ]+) ([^ ]+) (?:"(.*)"|(\w*)|(\$\w*))\)/);
-                        if (conditionMatch) {
-                            const control = conditionMatch[1];
-                            const property = conditionMatch[2];
-                            const operator = conditionMatch[3];
-                            const value = conditionMatch[4] || conditionMatch[5] || conditionMatch[6];
+                        const attrControl = entry.getAttribute('data-control');
+                        const attrProperty = entry.getAttribute('data-property');
+                        const attrOperator = entry.getAttribute('data-operator');
+                        const attrValue = entry.getAttribute('data-value');
+                        const attrValues = entry.getAttribute('data-values') || '';
+                        const join = entry.getAttribute('data-join') || 'new';
+                        const isOneOf = attrOperator === 'oneof';
+
+                        let control, property, operator, value, valueList;
+                        if (attrControl && attrProperty && attrOperator) {
+                            control = attrControl;
+                            property = attrProperty;
+                            // The stored operator is the code (eq/oneof/...); the label
+                            // shows the Python symbol
+                            operator = getOperatorText(attrOperator);
+                            value = attrValue === null ? '' : attrValue;
+                            valueList = attrValues ? attrValues.split('|').filter(v => v.length) : [];
+                        } else {
+                            const conditionMatch = conditionText.match(/IF \(([^(]+)\.([^ ]+) ([^ ]+) (?:"(.*)"|(\w*)|(\$\w*))\)/);
+                            if (!conditionMatch) {
+                                continue;
+                            }
+                            control = conditionMatch[1];
+                            property = conditionMatch[2];
+                            operator = conditionMatch[3];
+                            value = conditionMatch[4] || conditionMatch[5] || conditionMatch[6];
+                            valueList = [];
+                        }
+                        {
 
                             // Convert to Python condition - use self. prefix for instance attributes
                             let pyValue = value;
@@ -2725,6 +2768,25 @@
                                 pyLeft = "self." + control + ".winfo_ismapped()";
                             }
 
+                            // "Is one of 1, 3" matches any of the listed values
+                            const isBooleanCondition = ['visible', 'enabled', 'selected']
+                                .includes(propertyName);
+                            if (isOneOf && isBooleanCondition && propertyName !== 'enabled') {
+                                // A True/False property has no list to match against, so
+                                // fall back to comparing the first value
+                                const first = valueList.length ? valueList[0] : value;
+                                pyValue = (first === 'True' || first === 'False') ? first : "'" + first + "'";
+                                pyOperator = '==';
+                            } else if (isOneOf && !isBooleanCondition && valueList.length) {
+                                const tuple = "(" + valueList.map(v => "'" + v + "'").join(", ") + ")";
+                                if (propertyName === 'text' && conditionControlType === 'Listbox') {
+                                    pyConditionOverride = "any(_item in " + tuple +
+                                        " for _item in self." + control + ".get(0, tk.END))";
+                                } else {
+                                    pyConditionOverride = pyLeft + " in " + tuple;
+                                }
+                            }
+
                             // "Contains" reads as <value> in <property>, so the operands
                             // swap round for that operator.
                             const isTextLikeProperty = pyLeft.indexOf(".cget(") !== -1 ||
@@ -2735,17 +2797,53 @@
                                     ? pyValue + " in " + pyLeft
                                     : pyLeft + " " + pyOperator + " " + pyValue;
 
-                            // Check if this is part of an if/elif chain
-                            closeEmptyBlock();
-                            if (inConditionChain && ifBlockDepth === conditionDepth + 1) {
-                                pyCode += "    ".repeat(ifBlockDepth - 1) + "elif " + pyCondition + ":\n";
-                                pendingBodyIndent = "    ".repeat(ifBlockDepth);
+                            // "AND"/"OR" rules fold into the condition above them, so
+                            // "if A and B:" replaces a separate branch for B.
+                            const joinsPrevious = (join === 'and' || join === 'or') &&
+                                lastCondition !== null &&
+                                lastCondition.depth === ifBlockDepth - 1;
+                            if (joinsPrevious) {
+                                const combined = "(" + lastCondition.expression + ") " +
+                                    (join === 'and' ? 'and' : 'or') + " (" + pyCondition + ")";
+                                const line = lastCondition.indent + lastCondition.keyword + " " +
+                                    combined + ":\n";
+                                pyCode = pyCode.slice(0, lastCondition.start) + line +
+                                    pyCode.slice(lastCondition.end);
+                                lastCondition = {
+                                    start: lastCondition.start,
+                                    end: lastCondition.start + line.length,
+                                    indent: lastCondition.indent,
+                                    keyword: lastCondition.keyword,
+                                    expression: combined,
+                                    depth: lastCondition.depth
+                                };
                             } else {
-                                pyCode += "    ".repeat(ifBlockDepth) + "if " + pyCondition + ":\n";
-                                ifBlockDepth++;
-                                conditionDepth = ifBlockDepth - 1;
-                                inConditionChain = true;
-                                pendingBodyIndent = "    ".repeat(ifBlockDepth);
+                                // Check if this is part of an if/elif chain
+                                closeEmptyBlock();
+                                let keyword = 'if';
+                                let indentDepth = ifBlockDepth;
+                                if (inConditionChain && ifBlockDepth === conditionDepth + 1) {
+                                    keyword = 'elif';
+                                    indentDepth = ifBlockDepth - 1;
+                                    pendingBodyIndent = "    ".repeat(ifBlockDepth);
+                                } else {
+                                    ifBlockDepth++;
+                                    conditionDepth = ifBlockDepth - 1;
+                                    inConditionChain = true;
+                                    pendingBodyIndent = "    ".repeat(ifBlockDepth);
+                                }
+                                const indent = "    ".repeat(indentDepth);
+                                const line = indent + keyword + " " + pyCondition + ":\n";
+                                const start = pyCode.length;
+                                pyCode += line;
+                                lastCondition = {
+                                    start: start,
+                                    end: start + line.length,
+                                    indent: indent,
+                                    keyword: keyword,
+                                    expression: pyCondition,
+                                    depth: indentDepth
+                                };
                             }
                         }
                     } else if (actionSpan) {
@@ -5628,6 +5726,7 @@ print("${controlId} clicked!")`;
                 const conditionControl = document.getElementById('conditionControl').value;
                 const conditionProperty = document.getElementById('conditionProperty').value;
                 const conditionOperator = document.getElementById('conditionOperator').value;
+                const conditionJoin = document.getElementById('conditionJoin').value;
                 
                 let conditionValue;
                 if (['visible', 'enabled', 'selected'].includes(conditionProperty)) {
@@ -5646,11 +5745,23 @@ print("${controlId} clicked!")`;
                     return;
                 }
 
+                if (conditionOperator === 'oneof' &&
+                    ['visible', 'enabled', 'selected'].includes(conditionProperty)) {
+                    alert('"Is one of" needs a text property - True/False has nothing to match against');
+                    return;
+                }
+
+                if (conditionOperator === 'oneof' && !parseConditionValueList(conditionValue).length) {
+                    alert('Enter one or more values to match, separated by commas');
+                    return;
+                }
+
                 const condition = {
                     control: conditionControl,
                     property: conditionProperty,
                     operator: conditionOperator,
-                    value: conditionValue
+                    value: conditionValue,
+                    join: conditionJoin
                 };
 
                 addToLogicPreview('condition', condition);
@@ -5779,12 +5890,20 @@ print("${controlId} clicked!")`;
                 let entryHtml = '';
                 if (type === 'condition') {
                     const isBooleanProperty = ['visible', 'enabled', 'selected'].includes(obj.property);
-                    const formattedValue = isBooleanProperty ? obj.value : '"' + obj.value + '"';
+                    const isOneOf = obj.operator === 'oneof';
+                    const join = obj.join || 'new';
+                    const joinPrefix = join === 'and' ? 'AND ' : (join === 'or' ? 'OR ' : '');
+                    const values = isOneOf ? parseConditionValueList(obj.value) : [];
+                    const formattedValue = isBooleanProperty
+                        ? obj.value
+                        : isOneOf
+                            ? values.map(v => '"' + v + '"').join(', ')
+                            : '"' + obj.value + '"';
                     
                     const opText = getOperatorText(obj.operator);
-                    entryHtml = `<div id="${entryId}" class="logic-entry" draggable="true" data-type="condition" data-control="${obj.control}" data-property="${obj.property}" data-operator="${obj.operator}" data-value="${obj.value}">
+                    entryHtml = `<div id="${entryId}" class="logic-entry" draggable="true" data-type="condition" data-control="${obj.control}" data-property="${obj.property}" data-operator="${obj.operator}" data-value="${obj.value}" data-values="${values.join('|')}" data-join="${join}">
                         <div class="logic-entry-content">
-                            <span class="logic-condition">IF (${obj.control}.cget('${obj.property}') ${opText} ${formattedValue}) THEN</span>
+                            <span class="logic-condition">${joinPrefix}IF (${obj.control}.cget('${obj.property}') ${opText} ${formattedValue}) THEN</span>
                         </div>
                         <div class="logic-entry-actions">
                             <button class="btn btn-secondary btn-sm edit-logic-entry" data-id="${entryId}" title="Edit">✏️</button>
@@ -5907,6 +6026,14 @@ print("${controlId} clicked!")`;
                 previewDiv.scrollTop = previewDiv.scrollHeight;
             }
 
+            // "Is one of" takes a comma separated list; blanks are dropped so
+            // "1, 3, " still means two values.
+            function parseConditionValueList(value) {
+                return String(value || '').split(',')
+                    .map(part => part.trim())
+                    .filter(part => part.length);
+            }
+
             function getOperatorText(op) {
                 switch(op) {
                     case 'eq': return '==';
@@ -5916,6 +6043,9 @@ print("${controlId} clicked!")`;
                     case 'ge': return '>=';
                     case 'le': return '<=';
                     case 'contains': return 'in';
+                    // Reads as "is one of 1, 3" in the preview; the generator builds
+                    // the tuple from the entry's data-values.
+                    case 'oneof': return 'in';
                     default: return op;
                 }
             }
@@ -5980,20 +6110,32 @@ print("${controlId} clicked!")`;
                     const property = entryElement.getAttribute('data-property');
                     const operator = entryElement.getAttribute('data-operator');
                     const value = entryElement.getAttribute('data-value');
+                    const join = entryElement.getAttribute('data-join') || 'new';
                     
                     const newProperty = prompt('Edit Property:', property) || property;
-                    const newOperator = prompt('Edit Operator:', operator) || operator;
-                    const newValue = prompt('Edit Value:', value) || value;
+                    const newOperator = prompt('Edit Operator (eq, ne, gt, lt, ge, le, contains, oneof):', operator) || operator;
+                    const newValue = prompt(newOperator === 'oneof'
+                        ? 'Edit Values (comma separated):'
+                        : 'Edit Value:', value) || value;
                     
                     const isBooleanProperty = ['visible', 'enabled', 'selected'].includes(newProperty);
-                    const formattedValue = isBooleanProperty ? newValue : '"' + newValue + '"';
+                    const isOneOf = newOperator === 'oneof';
+                    const values = isOneOf ? parseConditionValueList(newValue) : [];
+                    const formattedValue = isBooleanProperty
+                        ? newValue
+                        : isOneOf
+                            ? values.map(v => '"' + v + '"').join(', ')
+                            : '"' + newValue + '"';
                     
                     const opText = getOperatorText(newOperator);
-                    entryElement.querySelector('.logic-condition').textContent = `IF (${control}.cget('${newProperty}') ${opText} ${formattedValue}) THEN`;
+                    const joinPrefix = join === 'and' ? 'AND ' : (join === 'or' ? 'OR ' : '');
+                    entryElement.querySelector('.logic-condition').textContent = `${joinPrefix}IF (${control}.cget('${newProperty}') ${opText} ${formattedValue}) THEN`;
 
                     entryElement.setAttribute('data-property', newProperty);
                     entryElement.setAttribute('data-operator', newOperator);
                     entryElement.setAttribute('data-value', newValue);
+                    entryElement.setAttribute('data-values', values.join('|'));
+                    entryElement.setAttribute('data-join', join);
                 } else if (type === 'action') {
                     const actionType = entryElement.getAttribute('data-action-type');
                     const value = entryElement.getAttribute('data-value');

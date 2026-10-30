@@ -1,0 +1,12 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{# The Django admin does not ship a favicon, so use the app's python-in-a-form mark #}
+{% block extrahead %}
+    {{ block.super }}
+    <link rel="icon" type="image/svg+xml" href="{% static 'designer/img/favicon.svg' %}?v={{ STATIC_VERSION }}">
+    <link rel="alternate icon" type="image/png" sizes="32x32" href="{% static 'designer/img/favicon-32.png' %}?v={{ STATIC_VERSION }}">
+    <link rel="shortcut icon" href="{% static 'designer/img/favicon.ico' %}?v={{ STATIC_VERSION }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{% static 'designer/img/apple-touch-icon.png' %}?v={{ STATIC_VERSION }}">
+    <meta name="theme-color" content="#306998">
+{% endblock %}

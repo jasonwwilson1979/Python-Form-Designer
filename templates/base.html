@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}{{ SITE_NAME }}{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'designer/img/favicon.svg' %}?v={{ STATIC_VERSION }}">
+    <link rel="alternate icon" type="image/png" sizes="32x32" href="{% static 'designer/img/favicon-32.png' %}?v={{ STATIC_VERSION }}">
+    <link rel="shortcut icon" href="{% static 'designer/img/favicon.ico' %}?v={{ STATIC_VERSION }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{% static 'designer/img/apple-touch-icon.png' %}?v={{ STATIC_VERSION }}">
+    <meta name="theme-color" content="#306998">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="{% static 'designer/css/app.css' %}?v={{ STATIC_VERSION }}">
     {% block extra_css %}{% endblock %}
