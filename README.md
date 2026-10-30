@@ -43,7 +43,7 @@ Use **Sign up free** to create an account, then **New form** to open the designe
 Useful commands:
 
 ```bash
-python manage.py test              # 72 tests
+python manage.py test              # 73 tests
 python manage.py check
 python manage.py collectstatic --noinput
 ```

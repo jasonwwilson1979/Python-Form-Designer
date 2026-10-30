@@ -1619,6 +1619,14 @@
             
             formContainer.addEventListener('dragover', dragOver);
             formContainer.addEventListener('drop', drop);
+
+            // The palette is the only thing that may start a browser drag - a control
+            // inside the canvas is moved by the mouse handler below.
+            formContainer.addEventListener('dragstart', function(e) {
+                if (e.target && e.target.closest && e.target.closest('.form-control')) {
+                    e.preventDefault();
+                }
+            });
             
             // Also add dragover and drop events to all form controls to allow dropping into containers
             document.addEventListener('dragover', function(e) {
@@ -2952,7 +2960,9 @@
                 control.id = controlId;
                 control.className = 'form-control';
                 control.setAttribute('data-type', type);
-                control.setAttribute('draggable', 'true');
+                // Controls are moved with the mouse; marking them draggable makes the
+                // browser start its own drag (with a ghost image) instead.
+                control.setAttribute('draggable', 'false');
                 control.setAttribute('data-visible', 'true');
                 control.setAttribute('data-enabled', 'true');
 
@@ -3358,10 +3368,23 @@
             // Keep the browser preview in step: radio inputs only toggle each other
             // when they share a name, so the name follows the parent as well.
             function refreshRadioGroups() {
+                const chosenPerGroup = {};
+
                 formContainer.querySelectorAll('.form-control[data-type="radiobutton"]').forEach(function(control) {
                     const input = control.querySelector('input[type="radio"]');
                     if (input) {
                         input.setAttribute('name', 'radio_group_' + radioGroupKey(control));
+                    }
+
+                    // Only one radio per group can be "selected at start" - clear any
+                    // extra flags (older saved forms could carry several).
+                    if (control.getAttribute('data-selected') === 'true') {
+                        const key = radioGroupKey(control);
+                        if (chosenPerGroup[key]) {
+                            control.setAttribute('data-selected', 'false');
+                        } else {
+                            chosenPerGroup[key] = control.id;
+                        }
                     }
                 });
             }
@@ -3373,9 +3396,13 @@
                     control.classList.toggle('is-hidden', control.getAttribute('data-visible') === 'false');
                     control.classList.toggle('is-disabled', control.getAttribute('data-enabled') === 'false');
 
-                    const input = control.querySelector('input[type="checkbox"], input[type="radio"]');
-                    if (input) {
-                        input.checked = control.getAttribute('data-selected') === 'true';
+                    // Only the control's own tick box/radio - not those of a container
+                    const type = getControlType(control);
+                    if (type === 'Checkbutton' || type === 'Radiobutton') {
+                        const input = control.querySelector('input[type="checkbox"], input[type="radio"]');
+                        if (input) {
+                            input.checked = control.getAttribute('data-selected') === 'true';
+                        }
                     }
                 });
             }
@@ -3429,7 +3456,8 @@
                 const radioGroupInitial = {};
                 sortedControls.forEach(function(control) {
                     if (getControlType(control) === 'Radiobutton' &&
-                        control.getAttribute('data-selected') === 'true') {
+                        control.getAttribute('data-selected') === 'true' &&
+                        !radioGroupInitial[radioGroupKey(control)]) {
                         radioGroupInitial[radioGroupKey(control)] = control.id;
                     }
                 });

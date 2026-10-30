@@ -619,6 +619,19 @@ class PageTests(TestCase):
         ):
             self.assertIn(expected, template)
 
+    def test_designer_controls_are_not_browser_draggable(self):
+        """Controls are moved with the mouse, so the browser must not start its own
+        drag (which produced a ghost image and blocked the move)."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("control.setAttribute('draggable', 'false')", template)
+        self.assertIn("formContainer.addEventListener('dragstart'", template)
+        # the palette must keep working
+        self.assertIn('class="component-item" draggable="true"', template)
+        # stale "selected at start" flags are cleaned up per radio group
+        self.assertIn("chosenPerGroup", template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)
