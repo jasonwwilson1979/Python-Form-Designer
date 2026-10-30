@@ -632,6 +632,21 @@ class PageTests(TestCase):
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
 
+    def test_radio_groups_never_start_on_the_empty_string(self):
+        """The empty string is Tk's default -tristatevalue, and a group variable
+        holding it makes every radio in the group draw in tri-state mode (they all
+        look switched on), so a group with nothing selected must start on a value
+        that no radio carries."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("const RADIO_NONE_SELECTED = 'None Selected';", template)
+        self.assertIn("radioGroupInitial[radioGroupKey(control)] || RADIO_NONE_SELECTED", template)
+        # the old, broken fallback must be gone
+        self.assertNotIn("radioGroupInitial[radioGroupKey(control)] || ''", template)
+        # deselect() has the same trap: it clears the group variable to ''
+        self.assertIn("radioGroupVariable(element) +", template)
+
     def test_designer_can_download_the_live_code(self):
         """The toolbar exports what is on screen, so a downloaded .py is never the
         stale snapshot stored by the last save."""

@@ -2848,7 +2848,18 @@
                         } else if (actionText.includes(".select()") || actionText.includes(".deselect()")) {
                             const selectMatch = actionText.match(/SET \(([^ ]+)\.(select|deselect)\(\)\)/);
                             if (selectMatch) {
-                                pyCode += indent + "self." + selectMatch[1] + "." + selectMatch[2] + "()\n";
+                                const target = selectMatch[1];
+                                const element = document.getElementById(target);
+                                if (selectMatch[2] === 'deselect' && element &&
+                                    getControlType(element) === 'Radiobutton') {
+                                    // deselect() clears the shared variable to the empty
+                                    // string, which Tk draws as tri-state ("all on"), so
+                                    // park the group on the sentinel instead
+                                    pyCode += indent + radioGroupVariable(element) +
+                                        ".set('" + RADIO_NONE_SELECTED + "')\n";
+                                } else {
+                                    pyCode += indent + "self." + target + "." + selectMatch[2] + "()\n";
+                                }
                             }
                         } else if (actionText.includes(".invoke(")) {
                             const actionMatch = actionText.match(/CALL \(([^(]+)\.invoke\(\)\)/);
@@ -3375,6 +3386,13 @@
                 return (parent && parent.classList.contains('form-control')) ? parent.id : 'form';
             }
 
+            // Starting value for a radio group where nothing is "selected at start".
+            // It must NOT be the empty string: that is Tk's default -tristatevalue, and
+            // while the variable holds it every radio in the group is drawn in tri-state
+            // mode, i.e. they all look switched on.  It can never collide with a radio's
+            // value either, because those are control ids (which never contain spaces).
+            const RADIO_NONE_SELECTED = 'None Selected';
+
             function radioGroupVariable(control) {
                 const key = radioGroupKey(control);
                 return 'self.' + (key === 'form' ? 'radio_group_var' : key + '_radio_group_var');
@@ -3569,8 +3587,10 @@
                         if (!radioGroupVariablesEmitted[groupVar]) {
                             radioGroupVariablesEmitted[groupVar] = true;
                             // The variable's starting value is the radio that is
-                            // "selected at start" - empty means none of them is on.
-                            const initial = radioGroupInitial[radioGroupKey(control)] || '';
+                            // "selected at start".  When none is, it must be a value no
+                            // radio carries - see RADIO_NONE_SELECTED, because the empty
+                            // string would put the whole group in Tk's tri-state mode.
+                            const initial = radioGroupInitial[radioGroupKey(control)] || RADIO_NONE_SELECTED;
                             pyCode += "        " + groupVar + " = tk.StringVar(value='" + initial + "')\n";
                         }
                         pyCode += "        self." + controlId + " = tk.Radiobutton(" + master + ", text='" + text.replace(/'/g, "\\'") + "', variable=" + groupVar + ", value='" + controlId + "'";

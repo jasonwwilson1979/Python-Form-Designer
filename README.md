@@ -18,8 +18,25 @@ result to your account, share it with a link or another user, and chat about it.
 | **Chat** | Per-form chat room (drawer, unread badge, 4 s polling) plus a community lobby chat on the dashboard |
 | **Code library** | Browser-cached snippets for everyone (save/edit/insert), **plus a public code library stored in the database that only administrators can publish to**; any user can browse it and copy snippets into their own library |
 | **Copy to my account** | Anyone with a share link can clone the form into their own account (when the owner allows it) |
-| **Export** | Download the generated `.py`, or use the designer's JSON export/import |
+| **Export** | The designer's **Download .py** button saves exactly what the code preview shows, the dashboard serves the copy stored at the last save, or use the designer's JSON export/import |
 | **Deployment** | Docker image (Gunicorn + WhiteNoise), `docker-compose.yml`, Portainer stack, GHCR publishing workflow, SQLite or PostgreSQL |
+
+### Notes on the generated code
+
+* **Radio groups.** Radios that share a container are one Tk group: they share a single
+  `StringVar` and each radio stores its own id as its value, so the generated code can
+  tell which one is selected. A group where nothing is marked *Selected at start* starts
+  on `'None Selected'` and not `''`, because the empty string is Tk's default
+  `-tristatevalue`: while the group variable holds it, **every** radio is drawn in
+  tri-state mode and they all look switched on. Clearing a group (`Set Selected = False`)
+  parks the variable back on that same sentinel instead of calling `.deselect()`, which
+  would clear it to the empty string and hit the same trap.
+* **Nested controls** are created with their container as `master`, so they are placed
+  inside the frame/labelframe rather than on the form.
+* **Text widgets** are read with the right accessor: `.get()` for `Entry`/`Combobox`,
+  `.get('1.0', 'end-1c')` for multiline entries and `Listbox` selections.
+* **Classic Tk has no `instate()`**, so state conditions use `cget('state')`; empty
+  logic blocks get a `pass` so the file always parses.
 
 ---
 
