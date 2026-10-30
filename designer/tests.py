@@ -662,10 +662,15 @@ class PageTests(TestCase):
         self.assertIn('<i class="fas fa-i-cursor"></i> Textbox', template)
         self.assertIn('<i class="fas fa-object-group"></i> Groupbox', template)
         self.assertIn("controlTypeLabel(controlType)", template)
-        # search box that filters both control pickers
-        self.assertIn('id="logicControlSearch"', template)
-        self.assertIn("function filterLogicControlLists", template)
-        self.assertIn("populateControlLists(this.value)", template)
+        # the control pickers are searchable in place: a native <input list="...">
+        # over the hidden <select> the rest of the code reads
+        self.assertIn('id="conditionControlSearch"', template)
+        self.assertIn('list="conditionControlOptions"', template)
+        self.assertIn('id="actionControlSearch"', template)
+        self.assertIn('list="actionControlOptions"', template)
+        self.assertIn("function syncControlSearch", template)
+        self.assertIn("bindControlSearch('conditionControl'", template)
+        self.assertNotIn('id="logicControlSearch"', template)
         # a new menu starts with items you can edit
         self.assertIn("const DEFAULT_MENU_ITEMS =", template)
         self.assertIn("control.setAttribute('data-menu-items', DEFAULT_MENU_ITEMS)", template)

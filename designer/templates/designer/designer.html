@@ -1267,11 +1267,6 @@
                             </div>
 
                             <div class="property-group">
-                                <label class="property-label">Find a control</label>
-                                <input type="text" class="property-input" id="logicControlSearch" placeholder="Type to filter the control lists below...">
-                            </div>
-
-                            <div class="property-group">
                                 <label class="property-label">Add a condition</label>
                                 <div style="display: flex; gap: 10px; align-items: center;">
                                     <select class="property-input" id="conditionJoin" style="flex: 1;" title="How this condition combines with the rule above">
@@ -1279,9 +1274,13 @@
                                         <option value="and">AND with the rule above</option>
                                         <option value="or">OR with the rule above</option>
                                     </select>
-                                    <select class="property-input" id="conditionControl" style="flex: 1;">
+                                    <!-- the select stays the source of truth; the field above it is
+                                         the same list, searchable as you type -->
+                                    <select class="property-input" id="conditionControl" style="display: none;">
                                         <option value="">Select a control</option>
                                     </select>
+                                    <input type="text" class="property-input" id="conditionControlSearch" list="conditionControlOptions" placeholder="Search a control..." autocomplete="off" style="flex: 1;">
+                                    <datalist id="conditionControlOptions"></datalist>
                                     <select class="property-input" id="conditionProperty" style="flex: 1;">
                                         <option value="">Select property</option>
                                     </select>
@@ -1309,9 +1308,12 @@
                             <div class="property-group">
                                 <label class="property-label">Add an action</label>
                                 <div style="display: flex; gap: 10px; align-items: center;">
-                                    <select class="property-input" id="actionControl" style="flex: 1;">
+                                    <!-- same as the condition picker: hidden select, searchable field -->
+                                    <select class="property-input" id="actionControl" style="display: none;">
                                         <option value="">Select a control</option>
                                     </select>
+                                    <input type="text" class="property-input" id="actionControlSearch" list="actionControlOptions" placeholder="Search a control..." autocomplete="off" style="flex: 1;">
+                                    <datalist id="actionControlOptions"></datalist>
                                     <select class="property-input" id="actionType" style="flex: 1;">
                                         <option value="">Select action</option>
                                     </select>
@@ -5337,10 +5339,6 @@ print("${controlId} clicked!")`;
                 codeLibraryTab.classList.remove('active');
 
                 populateControlLists();
-                const logicSearchBox = document.getElementById('logicControlSearch');
-                if (logicSearchBox) {
-                    logicSearchBox.value = '';
-                }
             });
 
             codeLibraryTabBtn.addEventListener('click', function() {
@@ -5648,14 +5646,14 @@ print("${controlId} clicked!")`;
                 return div.innerHTML;
             }
 
-            // Populate control lists.  The search box filters them, and the current
-            // choice always stays in the list so filtering cannot lose a selection.
-            function populateControlLists(searchTerm) {
+            // Populate the two control pickers.  The <select>s stay the source of truth
+            // (the rest of the code reads their value) and the searchable fields shown
+            // in their place are refreshed from them.
+            function populateControlLists() {
                 const conditionControl = document.getElementById('conditionControl');
                 const actionControl = document.getElementById('actionControl');
                 const conditionSelected = conditionControl.value;
                 const actionSelected = actionControl.value;
-                const term = (searchTerm || '').trim().toLowerCase();
 
                 conditionControl.innerHTML = '<option value="">Select a control</option>';
                 actionControl.innerHTML = '<option value="">Select a control</option>';
@@ -5665,11 +5663,6 @@ print("${controlId} clicked!")`;
                     const controlId = control.id;
                     const controlType = getControlType(control);
                     const optionText = `${controlTypeLabel(controlType)}: ${controlId}`;
-                    const matches = !term || optionText.toLowerCase().indexOf(term) !== -1 ||
-                        controlId === conditionSelected || controlId === actionSelected;
-                    if (!matches) {
-                        return;
-                    }
 
                     const conditionOption = document.createElement('option');
                     conditionOption.value = controlId;
@@ -5688,19 +5681,66 @@ print("${controlId} clicked!")`;
                 if (actionSelected) {
                     actionControl.value = actionSelected;
                 }
+
+                syncControlSearch('conditionControl', 'conditionControlSearch', 'conditionControlOptions');
+                syncControlSearch('actionControl', 'actionControlSearch', 'actionControlOptions');
             }
 
-            // Search box above the two control pickers
-            function filterLogicControlLists(term) {
-                populateControlLists(term);
-            }
+            // The pickers are native searchable fields: the visible box is an
+            // <input list="..."> you can type in to filter, while the hidden <select>
+            // stays the source of truth and still fires change for the rest of the UI.
+            function syncControlSearch(selectId, inputId, listId) {
+                const select = document.getElementById(selectId);
+                const input = document.getElementById(inputId);
+                const list = document.getElementById(listId);
+                if (!select || !input || !list) {
+                    return;
+                }
 
-            const logicControlSearch = document.getElementById('logicControlSearch');
-            if (logicControlSearch) {
-                logicControlSearch.addEventListener('input', function() {
-                    populateControlLists(this.value);
+                list.innerHTML = '';
+                Array.from(select.options).forEach(function(option) {
+                    if (!option.value) {
+                        return;                     // the "Select a control" placeholder
+                    }
+                    const entry = document.createElement('option');
+                    entry.value = option.textContent;
+                    list.appendChild(entry);
                 });
+
+                const chosen = select.options[select.selectedIndex];
+                input.value = (chosen && chosen.value) ? chosen.textContent : '';
             }
+
+            function bindControlSearch(selectId, inputId) {
+                const select = document.getElementById(selectId);
+                const input = document.getElementById(inputId);
+                if (!select || !input) {
+                    return;
+                }
+
+                const commit = function() {
+                    const typed = input.value.trim();
+                    const match = Array.from(select.options).find(function(option) {
+                        return option.value && option.textContent === typed;
+                    });
+                    if (match) {
+                        if (select.value !== match.value) {
+                            select.value = match.value;
+                            select.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        return;
+                    }
+                    // never leave half-typed text in place
+                    const chosen = select.options[select.selectedIndex];
+                    input.value = (chosen && chosen.value) ? chosen.textContent : '';
+                };
+
+                input.addEventListener('change', commit);
+                input.addEventListener('blur', commit);
+            }
+
+            bindControlSearch('conditionControl', 'conditionControlSearch');
+            bindControlSearch('actionControl', 'actionControlSearch');
 
             // Update condition property options
             document.getElementById('conditionControl').addEventListener('change', function() {
