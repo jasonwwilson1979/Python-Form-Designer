@@ -8,8 +8,8 @@ result to your account, share it with a link or another user, and chat about it.
 
 | Area | What you get |
 | --- | --- |
-| **Visual designer** | The original drag-and-drop designer (labels, entries, buttons, check/radio buttons, combo boxes, list boxes, frames, label frames, toplevels, menus), live Python code preview, visual logic builder, resize/collapse the code preview |
-| **Visual logic** | The rules are listed first and the controls that add the next step sit at the end of them; join a condition to the one above with **AND** / **OR**, and match any of several values in one go (*text is one of 1, 3*) |
+| **Visual designer** | The original drag-and-drop designer (labels, textboxes, buttons, check/radio buttons, combo boxes, list boxes, frames, groupboxes, tool windows, menus), live Python code preview, visual logic builder, resize/collapse the code preview |
+| **Visual logic** | Rules are listed first with the controls that add the next step at the end of them; a search box filters the two control pickers; join a condition to the one above with **AND** / **OR**; match any of several values in one go (*text is one of 1, 3*); react to a value changing (textbox typing, combo/list selection, check/radio toggles) |
 | **Editing controls** | Click a control to select it, drag to move, drag the handles to resize, **Delete key / top-bar Delete button / right-click → Delete** to remove it, right-click → Clear Canvas to empty the form, click the canvas (or its header) to edit the form's own properties |
 | **Accounts** | Sign up / log in / log out, profile page, Django admin for user management |
 | **Per-user forms** | Every form belongs to a user; the dashboard lists *my forms* and *shared with me* |

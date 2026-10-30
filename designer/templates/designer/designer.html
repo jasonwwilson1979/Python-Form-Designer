@@ -998,7 +998,7 @@
                             <i class="fas fa-font"></i> Label
                         </div>
                         <div class="component-item" draggable="true" data-type="textbox">
-                            <i class="fas fa-i-cursor"></i> Entry
+                            <i class="fas fa-i-cursor"></i> Textbox
                         </div>
                         <div class="component-item" draggable="true" data-type="button">
                             <i class="fas fa-hand-pointer"></i> Button
@@ -1023,7 +1023,7 @@
                             <i class="fas fa-border-all"></i> Frame
                         </div>
                         <div class="component-item" draggable="true" data-type="groupbox">
-                            <i class="fas fa-object-group"></i> LabelFrame
+                            <i class="fas fa-object-group"></i> Groupbox
                         </div>
                         <div class="component-item" draggable="true" data-type="toolwindow">
                             <i class="fas fa-window-restore"></i> ToolWindow
@@ -1209,6 +1209,7 @@
                         <option value="focus">Focus</option>
                         <option value="enter">Mouse Enter</option>
                         <option value="leave">Mouse Leave</option>
+                        <option value="change">Value Changed</option>
                     </select>
                 </div>
                 
@@ -1263,6 +1264,11 @@
                                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 6px;">
                                     Rules run from top to bottom. Add the next step with the controls below.
                                 </div>
+                            </div>
+
+                            <div class="property-group">
+                                <label class="property-label">Find a control</label>
+                                <input type="text" class="property-input" id="logicControlSearch" placeholder="Type to filter the control lists below...">
                             </div>
 
                             <div class="property-group">
@@ -1617,6 +1623,21 @@
 
             let selectedControl = null;
             let currentTool = 'select'; // Default tool
+            // Names the palette, the control pickers and the generated comments use.
+            // The internal type names (Entry, LabelFrame, ...) stay as they are so
+            // saved forms and their logic keep working.
+            const CONTROL_TYPE_LABELS = {
+                Entry: 'Textbox',
+                LabelFrame: 'Groupbox'
+            };
+
+            function controlTypeLabel(controlType) {
+                return CONTROL_TYPE_LABELS[controlType] || controlType;
+            }
+
+            // A new menu starts with these items so they can be edited instead of typed
+            // from scratch; the panel keeps the format hint as its placeholder.
+            const DEFAULT_MENU_ITEMS = 'File|New\nFile|Open\nFile|---\nFile|Save\nEdit|Copy\nEdit|Paste';
             // Every selected control (Ctrl+click adds to this list)
             let selectedControls = [];
             // Snapshots taken by "Copy Control Properties" / Ctrl+C (right-click menu)
@@ -2621,6 +2642,19 @@
             });
 
             // Function to generate Python script from visual logic
+            // A generated event handler method always needs a body: an event can be
+            // chosen before anything has been added to it, and an empty def will not
+            // run.  Scripts that are blank - or only a comment - get a pass so the
+            // file always parses.
+            function handlerBody(script) {
+                const body = (script || '').split('\n').map(line => "        " + line).join('\n');
+                const hasStatement = body.split('\n').some(function(line) {
+                    const trimmed = line.trim();
+                    return trimmed.length > 0 && trimmed.charAt(0) !== '#';
+                });
+                return hasStatement ? body + "\n" : body + "        pass\n";
+            }
+
             function generatePythonFromVisualLogic(logicPreview) {
                 // Create a temporary DOM element to parse the HTML content
                 const tempDiv = document.createElement('div');
@@ -3124,7 +3158,7 @@
                         control.style.height = '20px';
                         break;
                     case 'textbox':
-                        control.innerHTML = '<input type="text" placeholder="Entry" style="width: 100%; height: 100%;">';
+                        control.innerHTML = '<input type="text" placeholder="Textbox" style="width: 100%; height: 100%;">';
                         control.style.width = '120px';
                         control.style.height = '23px';
                         break;
@@ -3161,13 +3195,17 @@
                         control.style.backgroundColor = '#f9f9f9';
                         break;
                     case 'groupbox':
-                        control.innerHTML = '<span style="position: absolute; top: -10px; left: 10px; background: #f0f0f0; padding: 0 5px;">GroupBox</span>';
+                        control.innerHTML = '<span style="position: absolute; top: -10px; left: 10px; background: #f0f0f0; padding: 0 5px;">Groupbox</span>';
                         control.style.width = '150px';
                         control.style.height = '100px';
                         control.style.border = '1px solid #ccc';
                         break;
                     case 'menustrip':
                         control.innerHTML = '<span style="padding: 5px;">Menu</span>';
+                        // Start with real items so they can be edited in the panel
+                        // instead of retyped from the format hint.
+                        control.setAttribute('data-menu-items', DEFAULT_MENU_ITEMS);
+                        updateMenuControlPreview(control);
                         control.style.width = '100%';
                         control.style.height = '25px';
                         control.style.left = '0px';
@@ -3628,7 +3666,7 @@
                         ? "self." + parentElement.id
                         : "self";
 
-                    pyCode += "        # " + controlType + " - " + controlId + "\n";
+                    pyCode += "        # " + controlTypeLabel(controlType) + " - " + controlId + "\n";
 
                     if (controlType === 'Label') {
                         pyCode += "        self." + controlId + " = tk.Label(" + master + ", text='" + text.replace(/'/g, "\\'") + "'";
@@ -3820,8 +3858,7 @@
                                             pyCode += ", command=self." + menuItemId + "_handler";
                                             // The method the command points at
                                             eventHandlerCode += "\n    def " + menuItemId + "_handler(self):\n";
-                                            eventHandlerCode += controlEventHandlers[menuItemId]['click']
-                                                .split('\n').map(line => "        " + line).join('\n') + "\n";
+                                            eventHandlerCode += handlerBody(controlEventHandlers[menuItemId]['click']);
                                         }
                                         pyCode += ")\n";
                                     }
@@ -3881,19 +3918,37 @@
                                     pyCode += "        self." + controlId + ".bind('<Button-1>', self." + controlId + "_on_click)\n";
                                     eventHandlerCode += "\n    def " + controlId + "_on_click(self, event):\n";
                                 }
-                                eventHandlerCode += script.split('\n').map(line => "        " + line).join('\n') + "\n";
+                                eventHandlerCode += handlerBody(script);
                             } else if (eventType === 'double_click') {
                                 pyCode += "        self." + controlId + ".bind('<Double-Button-1>', self." + controlId + "_on_double_click)\n";
                                 eventHandlerCode += "\n    def " + controlId + "_on_double_click(self, event):\n";
-                                eventHandlerCode += script.split('\n').map(line => "        " + line).join('\n') + "\n";
+                                eventHandlerCode += handlerBody(script);
                             } else if (eventType === 'enter') {
                                 pyCode += "        self." + controlId + ".bind('<Enter>', self." + controlId + "_on_enter)\n";
                                 eventHandlerCode += "\n    def " + controlId + "_on_enter(self, event):\n";
-                                eventHandlerCode += script.split('\n').map(line => "        " + line).join('\n') + "\n";
+                                eventHandlerCode += handlerBody(script);
                             } else if (eventType === 'leave') {
                                 pyCode += "        self." + controlId + ".bind('<Leave>', self." + controlId + "_on_leave)\n";
                                 eventHandlerCode += "\n    def " + controlId + "_on_leave(self, event):\n";
-                                eventHandlerCode += script.split('\n').map(line => "        " + line).join('\n') + "\n";
+                                eventHandlerCode += handlerBody(script);
+                            } else if (eventType === 'change') {
+                                // "Value changed" is per widget: typing in a textbox,
+                                // picking from a combo, choosing a row, toggling a check
+                                // or radio button.
+                                const usesCommand = (controlType === 'Checkbutton' ||
+                                    controlType === 'Radiobutton');
+                                if (controlType === 'Combobox') {
+                                    pyCode += "        self." + controlId + ".bind('<<ComboboxSelected>>', self." + controlId + "_on_change)\n";
+                                } else if (controlType === 'Listbox') {
+                                    pyCode += "        self." + controlId + ".bind('<<ListboxSelect>>', self." + controlId + "_on_change)\n";
+                                } else if (usesCommand) {
+                                    pyCode += "        self." + controlId + ".config(command=self." + controlId + "_on_change)\n";
+                                } else {
+                                    pyCode += "        self." + controlId + ".bind('<KeyRelease>', self." + controlId + "_on_change)\n";
+                                }
+                                eventHandlerCode += "\n    def " + controlId + "_on_change(self" +
+                                    (usesCommand ? "" : ", event") + "):\n";
+                                eventHandlerCode += handlerBody(script);
                             }
                         }
                     }
@@ -5168,6 +5223,11 @@ print("${controlId} clicked!")`;
                         { value: 'enter', text: 'Mouse Enter' },
                         { value: 'leave', text: 'Mouse Leave' }
                     ];
+                    // "Value changed" only means something where the widget holds a
+                    // value the user can change
+                    if (['Entry', 'Combobox', 'Listbox', 'Checkbutton', 'Radiobutton'].includes(controlType)) {
+                        events.push({ value: 'change', text: 'Value Changed' });
+                    }
 
                     events.forEach(event => {
                         const option = document.createElement('option');
@@ -5277,6 +5337,10 @@ print("${controlId} clicked!")`;
                 codeLibraryTab.classList.remove('active');
 
                 populateControlLists();
+                const logicSearchBox = document.getElementById('logicControlSearch');
+                if (logicSearchBox) {
+                    logicSearchBox.value = '';
+                }
             });
 
             codeLibraryTabBtn.addEventListener('click', function() {
@@ -5584,10 +5648,14 @@ print("${controlId} clicked!")`;
                 return div.innerHTML;
             }
 
-            // Populate control lists
-            function populateControlLists() {
+            // Populate control lists.  The search box filters them, and the current
+            // choice always stays in the list so filtering cannot lose a selection.
+            function populateControlLists(searchTerm) {
                 const conditionControl = document.getElementById('conditionControl');
                 const actionControl = document.getElementById('actionControl');
+                const conditionSelected = conditionControl.value;
+                const actionSelected = actionControl.value;
+                const term = (searchTerm || '').trim().toLowerCase();
 
                 conditionControl.innerHTML = '<option value="">Select a control</option>';
                 actionControl.innerHTML = '<option value="">Select a control</option>';
@@ -5596,7 +5664,12 @@ print("${controlId} clicked!")`;
                 controls.forEach(function(control) {
                     const controlId = control.id;
                     const controlType = getControlType(control);
-                    const optionText = `${controlType}: ${controlId}`;
+                    const optionText = `${controlTypeLabel(controlType)}: ${controlId}`;
+                    const matches = !term || optionText.toLowerCase().indexOf(term) !== -1 ||
+                        controlId === conditionSelected || controlId === actionSelected;
+                    if (!matches) {
+                        return;
+                    }
 
                     const conditionOption = document.createElement('option');
                     conditionOption.value = controlId;
@@ -5607,6 +5680,25 @@ print("${controlId} clicked!")`;
                     actionOption.value = controlId;
                     actionOption.textContent = optionText;
                     actionControl.appendChild(actionOption);
+                });
+
+                if (conditionSelected) {
+                    conditionControl.value = conditionSelected;
+                }
+                if (actionSelected) {
+                    actionControl.value = actionSelected;
+                }
+            }
+
+            // Search box above the two control pickers
+            function filterLogicControlLists(term) {
+                populateControlLists(term);
+            }
+
+            const logicControlSearch = document.getElementById('logicControlSearch');
+            if (logicControlSearch) {
+                logicControlSearch.addEventListener('input', function() {
+                    populateControlLists(this.value);
                 });
             }
 

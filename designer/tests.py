@@ -649,6 +649,36 @@ class PageTests(TestCase):
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
 
+    def test_control_names_search_and_menu_defaults(self):
+        """The palette and the control pickers say Textbox / Groupbox, the pickers can
+        be searched, a new menu starts with editable items, and the logic builder
+        offers a "Value Changed" event."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        # display names - the internal type names stay so saved forms keep working
+        self.assertIn("Entry: 'Textbox'", template)
+        self.assertIn("LabelFrame: 'Groupbox'", template)
+        self.assertIn('<i class="fas fa-i-cursor"></i> Textbox', template)
+        self.assertIn('<i class="fas fa-object-group"></i> Groupbox', template)
+        self.assertIn("controlTypeLabel(controlType)", template)
+        # search box that filters both control pickers
+        self.assertIn('id="logicControlSearch"', template)
+        self.assertIn("function filterLogicControlLists", template)
+        self.assertIn("populateControlLists(this.value)", template)
+        # a new menu starts with items you can edit
+        self.assertIn("const DEFAULT_MENU_ITEMS =", template)
+        self.assertIn("control.setAttribute('data-menu-items', DEFAULT_MENU_ITEMS)", template)
+        # value-changed event
+        self.assertIn('<option value="change">Value Changed</option>', template)
+        self.assertIn("<<ComboboxSelected>>", template)
+        self.assertIn("<<ListboxSelect>>", template)
+        self.assertIn("_on_change", template)
+        # an event with nothing added yet still gets a body (a lone comment is not a
+        # statement, so the file would not parse)
+        self.assertIn("function handlerBody(script)", template)
+        self.assertIn("eventHandlerCode += handlerBody(script);", template)
+
     def test_else_entry_can_be_deleted_and_dragged(self):
         """The else entry used to be inserted without its delete/drag wiring, so its X
         did nothing.  Every entry now goes through wireLogicEntry()."""
