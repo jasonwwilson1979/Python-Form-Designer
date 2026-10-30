@@ -896,6 +896,9 @@
             <div class="toolbar-item" title="Save">
                 <i class="fas fa-save"></i>
             </div>
+            <div class="toolbar-item" title="Download .py">
+                <i class="fas fa-file-download"></i>
+            </div>
             <div class="toolbar-item" title="Backup Cache">
                 <i class="fas fa-download"></i>
             </div>
@@ -1681,6 +1684,24 @@
             });
             
             // Modal functionality
+            // Download the code that is on screen right now (the saved .py on the
+            // server is only a snapshot from the last save).
+            const downloadPyItem = document.querySelector('.toolbar-item[title="Download .py"]');
+            if (downloadPyItem) {
+                downloadPyItem.addEventListener('click', () => {
+                    const code = document.getElementById('codePreviewContent').textContent;
+                    const blob = new Blob([code], { type: 'text/x-python;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = (formProperties.name || 'form') + '.py';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                });
+            }
+
             document.querySelector('.toolbar-item[title="Save"]').addEventListener('click', () => {
                 modal.style.display = 'flex';
             });

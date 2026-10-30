@@ -632,6 +632,15 @@ class PageTests(TestCase):
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
 
+    def test_designer_can_download_the_live_code(self):
+        """The toolbar exports what is on screen, so a downloaded .py is never the
+        stale snapshot stored by the last save."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn('title="Download .py"', template)
+        self.assertIn("URL.createObjectURL(blob)", template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)
