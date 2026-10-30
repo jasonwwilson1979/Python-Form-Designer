@@ -632,6 +632,25 @@ class PageTests(TestCase):
         # stale "selected at start" flags are cleaned up per radio group
         self.assertIn("chosenPerGroup", template)
 
+    def test_tool_window_visibility_uses_the_window_api(self):
+        """A Toplevel is a real window, so Visible has to withdraw/deiconify it;
+        place_forget() would do nothing at all to it."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        # the visible flag is no longer skipped for Toplevel
+        self.assertIn(
+            "if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu') {",
+            template,
+        )
+        self.assertIn(r'pyCode += "        self." + controlId + ".withdraw()\n";', template)
+        # and the Show/Hide actions use the window API for tool windows
+        self.assertIn(r'pyCode += indent + "self." + target + ".withdraw()\n";', template)
+        self.assertIn(r'pyCode += indent + "self." + target + ".deiconify()\n";', template)
+        self.assertIn(r'pyCode += indent + "self." + target + ".lift()\n";', template)
+        # placed widgets keep the place/place_forget pair
+        self.assertIn(r'pyCode += indent + "self." + target + ".place_forget()\n";', template)
+
     def test_radio_groups_never_start_on_the_empty_string(self):
         """The empty string is Tk's default -tristatevalue, and a group variable
         holding it makes every radio in the group draw in tri-state mode (they all

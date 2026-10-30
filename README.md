@@ -33,6 +33,9 @@ result to your account, share it with a link or another user, and chat about it.
   would clear it to the empty string and hit the same trap.
 * **Nested controls** are created with their container as `master`, so they are placed
   inside the frame/labelframe rather than on the form.
+* **Tool windows** (`Toplevel`) are real windows, not placed widgets, so *Visible* and the
+  Hide/Show actions use the window API - `withdraw()` to hide and `deiconify()` + `lift()`
+  to show - while placed widgets keep `place_forget()` / `place(...)`.
 * **Text widgets** are read with the right accessor: `.get()` for `Entry`/`Combobox`,
   `.get('1.0', 'end-1c')` for multiline entries and `Listbox` selections.
 * **Classic Tk has no `instate()`**, so state conditions use `cget('state')`; empty

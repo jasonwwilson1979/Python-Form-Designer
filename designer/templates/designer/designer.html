@@ -2824,14 +2824,25 @@
                                     // A Combobox has no -text option; set() is the way
                                     pyCode += indent + "self." + target + ".set('" + textMatch[1] + "')\n";
                                 } else if (actionTypeAttr === 'hide' || config === "state='hidden'") {
-                                    // Classic Tk widgets have no hidden state - unplace them
-                                    pyCode += indent + "self." + target + ".place_forget()\n";
+                                    if (targetType === 'Toplevel') {
+                                        // A Toplevel is a real window, so hide the window
+                                        pyCode += indent + "self." + target + ".withdraw()\n";
+                                    } else {
+                                        // Classic Tk widgets have no hidden state - unplace them
+                                        pyCode += indent + "self." + target + ".place_forget()\n";
+                                    }
                                 } else if (actionTypeAttr === 'show' && element) {
-                                    // ...and put them back where they are
-                                    pyCode += indent + "self." + target + ".place(x=" +
-                                        (parseInt(element.style.left) || 0) + ", y=" + (parseInt(element.style.top) || 0) +
-                                        ", width=" + (parseInt(element.style.width) || 0) +
-                                        ", height=" + (parseInt(element.style.height) || 0) + ")\n";
+                                    if (targetType === 'Toplevel') {
+                                        // ...bring the window back, in front of the main one
+                                        pyCode += indent + "self." + target + ".deiconify()\n";
+                                        pyCode += indent + "self." + target + ".lift()\n";
+                                    } else {
+                                        // ...and put them back where they are
+                                        pyCode += indent + "self." + target + ".place(x=" +
+                                            (parseInt(element.style.left) || 0) + ", y=" + (parseInt(element.style.top) || 0) +
+                                            ", width=" + (parseInt(element.style.width) || 0) +
+                                            ", height=" + (parseInt(element.style.height) || 0) + ")\n";
+                                    }
                                 } else {
                                     // Use self. prefix for instance attributes
                                     pyCode += indent + "self." + target + ".config(" + config + ")\n";
@@ -3734,10 +3745,15 @@
                         // Starts ticked (radios get their group's starting value instead)
                         pyCode += "        self." + controlId + ".select()\n";
                     }
-                    if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu' &&
-                        controlType !== 'Toplevel') {
-                        // Not placed, so it does not show up (the Show action can place it)
-                        pyCode += "        self." + controlId + ".place_forget()\n";
+                    if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu') {
+                        if (controlType === 'Toplevel') {
+                            // A Toplevel is a real window, not a placed widget, so it has
+                            // to be hidden (the Show action can bring it back)
+                            pyCode += "        self." + controlId + ".withdraw()\n";
+                        } else {
+                            // Not placed, so it does not show up (the Show action can place it)
+                            pyCode += "        self." + controlId + ".place_forget()\n";
+                        }
                     }
                     if (control.getAttribute('data-enabled') === 'false' &&
                         ['Label', 'Entry', 'Button', 'Checkbutton', 'Radiobutton', 'Combobox', 'Listbox'].includes(controlType)) {
