@@ -1116,6 +1116,14 @@
                         </label>
                     </div>
 
+                    <!-- Checkbutton / Radiobutton initial state (hidden by default) -->
+                    <div class="property-group" id="selectedStateGroup" style="display: none;">
+                        <label class="property-label" style="display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="propSelected" style="width: auto; margin: 0;"> Selected at start
+                        </label>
+                        <span class="library-hint" id="selectedStateHint">Radios in the same container are one group</span>
+                    </div>
+
                     <!-- Dropdown Options Editor (hidden by default) -->
                     <div class="property-group" id="dropdownOptionsGroup" style="display: none;">
                         <label class="property-label">Dropdown Options</label>
@@ -3033,6 +3041,8 @@
                 document.getElementById('textBoxOptionsGroup').style.display = 'none';
                 document.getElementById('dropdownOptionsGroup').style.display = 'none';
                 document.getElementById('menuEditorGroup').style.display = 'none';
+                document.getElementById('selectedStateGroup').style.display = 'none';
+                document.getElementById('propSelected').checked = false;
                 document.getElementById('propVisible').checked = true;
                 document.getElementById('propEnabled').checked = true;
 
@@ -3191,6 +3201,9 @@
                 document.getElementById('textBoxOptionsGroup').style.display = controlType === 'Entry' ? 'block' : 'none';
                 document.getElementById('dropdownOptionsGroup').style.display = (controlType === 'Combobox' || controlType === 'Listbox') ? 'block' : 'none';
                 document.getElementById('menuEditorGroup').style.display = controlType === 'Menu' ? 'block' : 'none';
+                document.getElementById('selectedStateGroup').style.display =
+                    (controlType === 'Checkbutton' || controlType === 'Radiobutton') ? 'block' : 'none';
+                document.getElementById('propSelected').checked = control.getAttribute('data-selected') === 'true';
 
                 // Populate dropdown options if applicable
                 if (controlType === 'Combobox' || controlType === 'Listbox') {
@@ -3303,11 +3316,17 @@
                 });
             }
 
-            // Show what the Visible/Enabled properties will do in the generated form
+            // Show what the Visible/Enabled/Selected properties will do in the
+            // generated form
             function refreshControlStates() {
                 formContainer.querySelectorAll('.form-control').forEach(function(control) {
                     control.classList.toggle('is-hidden', control.getAttribute('data-visible') === 'false');
                     control.classList.toggle('is-disabled', control.getAttribute('data-enabled') === 'false');
+
+                    const input = control.querySelector('input[type="checkbox"], input[type="radio"]');
+                    if (input) {
+                        input.checked = control.getAttribute('data-selected') === 'true';
+                    }
                 });
             }
 
@@ -3580,7 +3599,12 @@
                     }
 
                     // Collect event handlers for later (after all controls are created)
-                    // Visible / Enabled from the properties panel
+                    // Visible / Enabled / Selected from the properties panel
+                    if (control.getAttribute('data-selected') === 'true' &&
+                        (controlType === 'Checkbutton' || controlType === 'Radiobutton')) {
+                        // Starts ticked (for a radio this also picks its group value)
+                        pyCode += "        self." + controlId + ".select()\n";
+                    }
                     if (control.getAttribute('data-visible') === 'false' && controlType !== 'Menu' &&
                         controlType !== 'Toplevel') {
                         // Not placed, so it does not show up (the Show action can place it)
@@ -3637,6 +3661,9 @@
 
                 // Update the real-time preview
                 codePreviewContent.textContent = pyCode;
+
+                // Anything that changed the form schedules an undo snapshot
+                scheduleHistory();
             }
 
             // Helper function to convert RGB to hex
@@ -3789,10 +3816,12 @@
                 const startY = e.clientY;
                 const startLeft = parseInt(control.style.left) || 0;
                 const startTop = parseInt(control.style.top) || 0;
+                let dragMoved = false;
 
                 function onMouseMove(e) {
                     const dx = e.clientX - startX;
                     const dy = e.clientY - startY;
+                    dragMoved = dragMoved || Math.abs(dx) > 2 || Math.abs(dy) > 2;
                     control.style.left = (startLeft + dx) + 'px';
                     control.style.top = (startTop + dy) + 'px';
                     updatePropertiesPanel(control);
@@ -3802,6 +3831,12 @@
                 function onMouseUp(e) {
                     document.removeEventListener('mousemove', onMouseMove);
                     document.removeEventListener('mouseup', onMouseUp);
+
+                    // Only a real drag may move the control in or out of a container -
+                    // a plain click must leave the nesting alone.
+                    if (!dragMoved) {
+                        return;
+                    }
 
                     // Released over a container (or over the canvas) -> move the
                     // control in or out of that container, keeping its position.
@@ -4020,9 +4055,11 @@
                 return control;
             }
 
-            function copyControlProperties() {
+            function copyControlProperties(silent) {
                 if (!selectedControl || selectedControl === formContainer) {
-                    alert('Select a control first, then copy its properties.');
+                    if (!silent) {
+                        alert('Select a control first, then copy its properties.');
+                    }
                     return false;
                 }
                 controlClipboard = snapshotControl(selectedControl);
@@ -4062,9 +4099,11 @@
                 return true;
             }
 
-            function pasteControl() {
+            function pasteControl(silent) {
                 if (!controlClipboard) {
-                    alert('Nothing copied yet - right-click a control and choose "Copy Control Properties" first.');
+                    if (!silent) {
+                        alert('Nothing copied yet - right-click a control and choose "Copy Control Properties" first.');
+                    }
                     return false;
                 }
                 const storedParent = controlClipboard.parentId
@@ -4151,6 +4190,73 @@
                 }
             });
 
+            // Undo / redo --------------------------------------------------------
+            // Every change schedules a snapshot of the whole form (the same data
+            // that gets saved), so undo/redo restores exactly what was on screen.
+            const undoStack = [];
+            const redoStack = [];
+            const MAX_HISTORY = 60;
+            let historyTimer = null;
+            let restoringHistory = false;
+
+            function currentSnapshot() {
+                return JSON.stringify(collectFormData('history'));
+            }
+
+            function pushHistory() {
+                if (restoringHistory) {
+                    return;
+                }
+                const snapshot = currentSnapshot();
+                if (undoStack.length && undoStack[undoStack.length - 1] === snapshot) {
+                    return; // nothing changed since the last snapshot
+                }
+                undoStack.push(snapshot);
+                if (undoStack.length > MAX_HISTORY) {
+                    undoStack.shift();
+                }
+                redoStack.length = 0;
+            }
+
+            // Called by every change (generateRealTimeCode); the delay keeps a drag
+            // or a burst of typing from filling the history with intermediate steps.
+            function scheduleHistory() {
+                if (restoringHistory) {
+                    return;
+                }
+                clearTimeout(historyTimer);
+                historyTimer = setTimeout(pushHistory, 400);
+            }
+
+            function restoreSnapshot(snapshot) {
+                restoringHistory = true;
+                try {
+                    applyFormData(JSON.parse(snapshot));
+                } finally {
+                    restoringHistory = false;
+                }
+                clearTimeout(historyTimer);
+            }
+
+            function undo() {
+                if (undoStack.length < 2) {
+                    return false;
+                }
+                redoStack.push(undoStack.pop());
+                restoreSnapshot(undoStack[undoStack.length - 1]);
+                return true;
+            }
+
+            function redo() {
+                if (!redoStack.length) {
+                    return false;
+                }
+                const snapshot = redoStack.pop();
+                undoStack.push(snapshot);
+                restoreSnapshot(snapshot);
+                return true;
+            }
+
             // Keyboard: Delete / Backspace removes the selected control
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
@@ -4163,6 +4269,35 @@
                 const isTyping = tagName === 'input' || tagName === 'textarea' ||
                                  tagName === 'select' || target.isContentEditable;
                 if (isTyping || (target.closest && target.closest('.modal'))) {
+                    return;
+                }
+
+                // Ctrl+C / Ctrl+V copy and paste the selected control
+                const ctrl = e.ctrlKey || e.metaKey;
+                const key = (e.key || '').toLowerCase();
+                if (ctrl && key === 'c') {
+                    if (copyControlProperties(true)) {
+                        e.preventDefault();
+                    }
+                    return;
+                }
+                if (ctrl && key === 'v') {
+                    if (pasteControl(true)) {
+                        e.preventDefault();
+                    }
+                    return;
+                }
+                // Ctrl+Z undoes, Ctrl+Y (or Ctrl+Shift+Z) redoes
+                if (ctrl && key === 'z' && !e.shiftKey) {
+                    if (undo()) {
+                        e.preventDefault();
+                    }
+                    return;
+                }
+                if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) {
+                    if (redo()) {
+                        e.preventDefault();
+                    }
                     return;
                 }
 
@@ -4382,6 +4517,23 @@
             document.getElementById('propEnabled').addEventListener('change', function() {
                 if (selectedControl) {
                     selectedControl.setAttribute('data-enabled', this.checked);
+                }
+                generateRealTimeCode();
+            });
+
+            // Initial state of a Checkbutton / Radiobutton
+            document.getElementById('propSelected').addEventListener('change', function() {
+                if (selectedControl) {
+                    selectedControl.setAttribute('data-selected', this.checked ? 'true' : 'false');
+                    if (this.checked && getControlType(selectedControl) === 'Radiobutton') {
+                        // Radios share one variable per container: only one can start on
+                        const group = radioGroupKey(selectedControl);
+                        formContainer.querySelectorAll('.form-control[data-type="radiobutton"]').forEach(function(other) {
+                            if (other !== selectedControl && radioGroupKey(other) === group) {
+                                other.setAttribute('data-selected', 'false');
+                            }
+                        });
+                    }
                 }
                 generateRealTimeCode();
             });

@@ -558,6 +558,28 @@ class PageTests(TestCase):
         ):
             self.assertIn(expected, template)
 
+    def test_designer_undo_redo_shortcuts_and_initial_state(self):
+        """Undo/redo history, the Ctrl+C/V/Z/Y shortcuts and the initial
+        Selected state for Checkbutton/Radiobutton."""
+        template = (
+            settings.BASE_DIR / "designer" / "templates" / "designer" / "designer.html"
+        ).read_text(encoding="utf-8")
+        for expected in (
+            "scheduleHistory",
+            "pushHistory",
+            "function undo()",
+            "function redo()",
+            "restoreSnapshot",
+            "key === 'z'",
+            "key === 'y'",
+            "key === 'c'",
+            "key === 'v'",
+            "selectedStateGroup",
+            "data-selected",
+            "dragMoved",
+        ):
+            self.assertIn(expected, template)
+
     def test_dashboard_requires_login(self):
         response = self.client.get(reverse("designer:dashboard"))
         self.assertEqual(response.status_code, 302)
